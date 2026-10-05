@@ -48,6 +48,7 @@ def read_aloud(text: str, language: str):
 
 st.set_page_config(page_title="MedSafe", page_icon="💊", layout="centered")
 interactions.init_db()
+interactions.rollover_if_new_day()
 
 SEVERITY_STYLE = {
     "major": ("🔴", "Serious interaction"),

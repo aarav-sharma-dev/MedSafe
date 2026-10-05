@@ -12,6 +12,7 @@ convert it to the same CSV columns: drug_a, drug_b, severity, mechanism.
 import csv
 import itertools
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "data" / "medsafe.db"
@@ -55,6 +56,7 @@ def init_db(force: bool = False) -> int:
     cols = [r[1] for r in cur.execute("PRAGMA table_info(meds)")]
     if "alerted_today" not in cols:
         cur.execute("ALTER TABLE meds ADD COLUMN alerted_today INTEGER DEFAULT 0")
+    cur.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
     if force:
         cur.execute("DROP TABLE IF EXISTS food_interactions")
     cur.execute(
@@ -172,8 +174,25 @@ def mark_alerted(name: str, alerted: bool = True) -> None:
 def reset_day() -> None:
     conn = get_conn()
     conn.execute("UPDATE meds SET taken_today = 0, alerted_today = 0")
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_reset', ?)",
+        (date.today().isoformat(),),
+    )
     conn.commit()
     conn.close()
+
+
+def rollover_if_new_day() -> bool:
+    """Reset the daily checklist automatically when the date changes.
+    Called on every app load; returns True if a reset happened."""
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM meta WHERE key = 'last_reset'").fetchone()
+    conn.close()
+    today = date.today().isoformat()
+    if row is None or row["value"] != today:
+        reset_day()
+        return row is not None  # first run ever doesn't count as a rollover
+    return False
 
 
 def remove_med(name: str) -> None:
