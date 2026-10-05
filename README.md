@@ -21,7 +21,7 @@ My medicine list (SQLite) ──► interaction DB (DDInter/seed CSV) ── dec
 
 ```bash
 pip install streamlit requests pillow pytesseract
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 Optional (each unlocks a feature, app works without them):
