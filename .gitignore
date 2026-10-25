@@ -1,6 +1,26 @@
+# Python bytecode and test caches
 __pycache__/
-*.pyc
-data/medsafe.db
-data/medsafe.db-journal
-.DS_Store
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Environment files containing secrets
 .env
+.env.*
+!.env.example
+
+# Local SQLite databases (personal & demo runtime files)
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/*.sqlite3
+data/*.sqlite3-journal
+data/*.sqlite3-wal
+data/*.sqlite3-shm
+
+# Temporary uploads, logs, and OS metadata
+tmp/
+*.log
+.DS_Store
+Thumbs.db

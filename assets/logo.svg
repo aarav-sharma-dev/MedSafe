@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 56" role="img" aria-label="MedSafe logo">
+  <defs>
+    <linearGradient id="msShield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#17324D"/>
+      <stop offset="100%" stop-color="#0F8B8D"/>
+    </linearGradient>
+  </defs>
+  <path d="M28 4 L48 11 V26 C48 39 39.5 48.2 28 52 C16.5 48.2 8 39 8 26 V11 Z" fill="url(#msShield)"/>
+  <path d="M28 13 V25 M22 19 H34" stroke="#EAF7F6" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M19 33 L25.5 39 L37.5 27" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="60" y="34" font-family="Segoe UI, Inter, system-ui, -apple-system, sans-serif" font-size="26" font-weight="700" fill="#17324D">Med</text>
+  <text x="115" y="34" font-family="Segoe UI, Inter, system-ui, -apple-system, sans-serif" font-size="26" font-weight="700" fill="#0F8B8D">Safe</text>
+  <text x="61" y="48" font-family="Segoe UI, Inter, system-ui, -apple-system, sans-serif" font-size="10.5" font-weight="600" fill="#566579" letter-spacing="0.4">MEDICATION SAFETY COMPANION</text>
+</svg>

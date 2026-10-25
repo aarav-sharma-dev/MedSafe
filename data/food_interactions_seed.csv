@@ -1,21 +1,21 @@
-drug,food,severity,mechanism
-atorvastatin,grapefruit,major,Grapefruit blocks the enzyme (CYP3A4) that breaks down statins; statin levels rise and the risk of muscle damage increases.
-simvastatin,grapefruit,major,Grapefruit blocks the enzyme (CYP3A4) that breaks down statins; statin levels rise and the risk of muscle damage increases.
-warfarin,leafy greens,moderate,Kale spinach and other greens are high in vitamin K which works against warfarin; sudden changes in how much you eat can make blood too thick or too thin. Keep intake consistent rather than avoiding them.
-warfarin,cranberry juice,moderate,Large amounts of cranberry juice may increase warfarin's effect and bleeding risk.
-warfarin,alcohol,major,Alcohol changes how warfarin is processed and raises bleeding risk.
-metformin,alcohol,major,Alcohol with metformin increases the risk of dangerously low blood sugar and lactic acidosis.
-lisinopril,bananas,moderate,ACE inhibitors raise potassium; eating many high-potassium foods (bananas oranges salt substitutes) can push potassium too high causing heart rhythm problems.
-losartan,salt substitutes,major,Most salt substitutes are potassium chloride; with ARBs like losartan potassium can rise to dangerous levels.
-spironolactone,salt substitutes,major,Salt substitutes are potassium chloride; with potassium-sparing diuretics potassium can rise to dangerous levels.
-levothyroxine,coffee,moderate,Coffee (and food in general) blocks levothyroxine absorption; take it on an empty stomach 30-60 minutes before breakfast.
-levothyroxine,dairy,moderate,Calcium in milk yogurt and cheese binds levothyroxine and blocks absorption; separate by 4 hours.
-digoxin,licorice,major,Black licorice lowers potassium which makes digoxin toxicity more likely and can cause heart rhythm problems.
-alprazolam,alcohol,major,Alcohol with benzodiazepines causes dangerous sedation and slowed breathing.
-oxycodone,alcohol,major,Alcohol with opioids causes dangerous sedation and slowed breathing; this combination can be fatal.
-sertraline,alcohol,moderate,Alcohol worsens the drowsiness and dizziness caused by SSRIs and can worsen depression.
-metoprolol,orange juice,minor,Orange juice may modestly reduce absorption of some beta blockers; separate doses from large amounts of juice.
-ibuprofen,alcohol,moderate,Alcohol with NSAIDs increases the risk of stomach bleeding especially in adults over 60.
-amlodipine,grapefruit,moderate,Grapefruit can raise amlodipine levels causing low blood pressure dizziness and flushing.
-clopidogrel,grapefruit,moderate,Grapefruit can block activation of clopidogrel reducing its protection against clots.
-prednisone,grapefruit,minor,Grapefruit can raise steroid levels; occasional intake is usually fine but mention it to your doctor.
+drug,food,severity,mechanism,record_id
+atorvastatin,grapefruit,major,Grapefruit blocks the enzyme (CYP3A4) that breaks down statins; statin levels rise and the risk of muscle damage increases.,MS-FOOD-001
+simvastatin,grapefruit,major,Grapefruit blocks the enzyme (CYP3A4) that breaks down statins; statin levels rise and the risk of muscle damage increases.,MS-FOOD-002
+warfarin,leafy greens,moderate,Kale spinach and other greens are high in vitamin K which works against warfarin; sudden changes in how much you eat can make blood too thick or too thin. Keep intake consistent rather than avoiding them.,MS-FOOD-003
+warfarin,cranberry juice,moderate,Large amounts of cranberry juice may increase warfarin's effect and bleeding risk.,MS-FOOD-004
+warfarin,alcohol,major,Alcohol changes how warfarin is processed and raises bleeding risk.,MS-FOOD-005
+metformin,alcohol,major,Alcohol with metformin increases the risk of dangerously low blood sugar and lactic acidosis.,MS-FOOD-006
+lisinopril,bananas,moderate,ACE inhibitors raise potassium; eating many high-potassium foods (bananas oranges salt substitutes) can push potassium too high causing heart rhythm problems.,MS-FOOD-007
+losartan,salt substitutes,major,Most salt substitutes are potassium chloride; with ARBs like losartan potassium can rise to dangerous levels.,MS-FOOD-008
+spironolactone,salt substitutes,major,Salt substitutes are potassium chloride; with potassium-sparing diuretics potassium can rise to dangerous levels.,MS-FOOD-009
+levothyroxine,coffee,moderate,Coffee (and food in general) blocks levothyroxine absorption; take it on an empty stomach 30-60 minutes before breakfast.,MS-FOOD-010
+levothyroxine,dairy,moderate,Calcium in milk yogurt and cheese binds levothyroxine and blocks absorption; separate by 4 hours.,MS-FOOD-011
+digoxin,licorice,major,Black licorice lowers potassium which makes digoxin toxicity more likely and can cause heart rhythm problems.,MS-FOOD-012
+alprazolam,alcohol,major,Alcohol with benzodiazepines causes dangerous sedation and slowed breathing.,MS-FOOD-013
+oxycodone,alcohol,major,Alcohol with opioids causes dangerous sedation and slowed breathing; this combination can be fatal.,MS-FOOD-014
+sertraline,alcohol,moderate,Alcohol worsens the drowsiness and dizziness caused by SSRIs and can worsen depression.,MS-FOOD-015
+metoprolol,orange juice,minor,Orange juice may modestly reduce absorption of some beta blockers; separate doses from large amounts of juice.,MS-FOOD-016
+ibuprofen,alcohol,moderate,Alcohol with NSAIDs increases the risk of stomach bleeding especially in adults over 60.,MS-FOOD-017
+amlodipine,grapefruit,moderate,Grapefruit can raise amlodipine levels causing low blood pressure dizziness and flushing.,MS-FOOD-018
+clopidogrel,grapefruit,moderate,Grapefruit can block activation of clopidogrel reducing its protection against clots.,MS-FOOD-019
+prednisone,grapefruit,minor,Grapefruit can raise steroid levels; occasional intake is usually fine but mention it to your doctor.,MS-FOOD-020

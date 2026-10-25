@@ -1,25 +1,25 @@
-drug_a,drug_b,severity,mechanism
-lisinopril,ibuprofen,major,NSAIDs like ibuprofen reduce the blood-pressure-lowering effect of ACE inhibitors and together can strain the kidneys.
-lisinopril,naproxen,major,NSAIDs like naproxen reduce the blood-pressure-lowering effect of ACE inhibitors and together can strain the kidneys.
-lisinopril,potassium chloride,major,ACE inhibitors raise potassium levels; adding potassium supplements can cause dangerously high potassium (hyperkalemia).
-lisinopril,spironolactone,major,Both raise potassium levels; together they can cause dangerously high potassium (hyperkalemia).
-warfarin,aspirin,major,Both thin the blood through different mechanisms; together they greatly increase bleeding risk.
-warfarin,ibuprofen,major,NSAIDs increase bleeding risk and can displace warfarin; combined use raises the chance of serious bleeding.
-warfarin,amiodarone,major,Amiodarone blocks warfarin breakdown; blood levels of warfarin rise and bleeding risk increases.
-warfarin,fluconazole,major,Fluconazole blocks warfarin metabolism (CYP2C9); INR and bleeding risk rise sharply.
-metformin,furosemide,moderate,Loop diuretics can affect kidney function and blood sugar; metformin levels and lactic acidosis risk may rise.
-metformin,prednisone,moderate,Steroids raise blood sugar and can work against metformin's glucose-lowering effect.
-atorvastatin,clarithromycin,major,Clarithromycin blocks statin breakdown (CYP3A4); statin levels rise and muscle damage (rhabdomyolysis) risk increases.
-atorvastatin,gemfibrozil,major,Combining fibrates with statins increases the risk of serious muscle damage (rhabdomyolysis).
-simvastatin,amlodipine,moderate,Amlodipine raises simvastatin levels; doses above 20 mg simvastatin increase muscle damage risk.
-levothyroxine,calcium carbonate,moderate,Calcium binds levothyroxine in the gut and blocks absorption; doses should be separated by 4 hours.
-levothyroxine,omeprazole,moderate,Reduced stomach acid from PPIs can lower levothyroxine absorption over time.
-metoprolol,verapamil,major,Both slow the heart; together they can cause dangerously slow heart rate or heart block.
-digoxin,furosemide,moderate,Furosemide can lower potassium; low potassium makes digoxin toxicity more likely.
-digoxin,amiodarone,major,Amiodarone raises digoxin blood levels; digoxin toxicity (nausea vision changes arrhythmia) risk increases.
-sertraline,tramadol,major,Both raise serotonin; together they increase the risk of serotonin syndrome and seizures.
-sertraline,ibuprofen,moderate,SSRIs plus NSAIDs increase the risk of stomach bleeding.
-alprazolam,oxycodone,major,Combining benzodiazepines with opioids can cause dangerous slowed breathing and sedation.
-amlodipine,clarithromycin,moderate,Clarithromycin raises amlodipine levels and can cause low blood pressure and kidney injury in older adults.
-losartan,potassium chloride,major,ARBs raise potassium; adding potassium supplements can cause dangerously high potassium (hyperkalemia).
-clopidogrel,omeprazole,moderate,Omeprazole blocks activation of clopidogrel (CYP2C19) and may reduce its protection against clots.
+drug_a,drug_b,severity,mechanism,record_id,management
+lisinopril,ibuprofen,major,NSAIDs like ibuprofen reduce the blood-pressure-lowering effect of ACE inhibitors and together can strain the kidneys.,MS-DDI-001,
+lisinopril,naproxen,major,NSAIDs like naproxen reduce the blood-pressure-lowering effect of ACE inhibitors and together can strain the kidneys.,MS-DDI-002,
+lisinopril,potassium chloride,major,ACE inhibitors raise potassium levels; adding potassium supplements can cause dangerously high potassium (hyperkalemia).,MS-DDI-003,
+lisinopril,spironolactone,major,Both raise potassium levels; together they can cause dangerously high potassium (hyperkalemia).,MS-DDI-004,
+warfarin,aspirin,major,Both thin the blood through different mechanisms; together they greatly increase bleeding risk.,MS-DDI-005,
+warfarin,ibuprofen,major,NSAIDs increase bleeding risk and can displace warfarin; combined use raises the chance of serious bleeding.,MS-DDI-006,
+warfarin,amiodarone,major,Amiodarone blocks warfarin breakdown; blood levels of warfarin rise and bleeding risk increases.,MS-DDI-007,
+warfarin,fluconazole,major,Fluconazole blocks warfarin metabolism (CYP2C9); INR and bleeding risk rise sharply.,MS-DDI-008,
+metformin,furosemide,moderate,Loop diuretics can affect kidney function and blood sugar; metformin levels and lactic acidosis risk may rise.,MS-DDI-009,
+metformin,prednisone,moderate,Steroids raise blood sugar and can work against metformin's glucose-lowering effect.,MS-DDI-010,
+atorvastatin,clarithromycin,major,Clarithromycin blocks statin breakdown (CYP3A4); statin levels rise and muscle damage (rhabdomyolysis) risk increases.,MS-DDI-011,
+atorvastatin,gemfibrozil,major,Combining fibrates with statins increases the risk of serious muscle damage (rhabdomyolysis).,MS-DDI-012,
+simvastatin,amlodipine,moderate,Amlodipine raises simvastatin levels; doses above 20 mg simvastatin increase muscle damage risk.,MS-DDI-013,
+levothyroxine,calcium carbonate,moderate,Calcium binds levothyroxine in the gut and blocks absorption; doses should be separated by 4 hours.,MS-DDI-014,
+levothyroxine,omeprazole,moderate,Reduced stomach acid from PPIs can lower levothyroxine absorption over time.,MS-DDI-015,
+metoprolol,verapamil,major,Both slow the heart; together they can cause dangerously slow heart rate or heart block.,MS-DDI-016,
+digoxin,furosemide,moderate,Furosemide can lower potassium; low potassium makes digoxin toxicity more likely.,MS-DDI-017,
+digoxin,amiodarone,major,Amiodarone raises digoxin blood levels; digoxin toxicity (nausea vision changes arrhythmia) risk increases.,MS-DDI-018,
+sertraline,tramadol,major,Both raise serotonin; together they increase the risk of serotonin syndrome and seizures.,MS-DDI-019,
+sertraline,ibuprofen,moderate,SSRIs plus NSAIDs increase the risk of stomach bleeding.,MS-DDI-020,
+alprazolam,oxycodone,major,Combining benzodiazepines with opioids can cause dangerous slowed breathing and sedation.,MS-DDI-021,
+amlodipine,clarithromycin,moderate,Clarithromycin raises amlodipine levels and can cause low blood pressure and kidney injury in older adults.,MS-DDI-022,
+losartan,potassium chloride,major,ARBs raise potassium; adding potassium supplements can cause dangerously high potassium (hyperkalemia).,MS-DDI-023,
+clopidogrel,omeprazole,moderate,Omeprazole blocks activation of clopidogrel (CYP2C19) and may reduce its protection against clots.,MS-DDI-024,

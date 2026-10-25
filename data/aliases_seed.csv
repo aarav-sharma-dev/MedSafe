@@ -1,0 +1,69 @@
+alias,ingredients,alias_type
+advil,ibuprofen,brand
+motrin,ibuprofen,brand
+aleve,naproxen,brand
+naprosyn,naproxen,brand
+advil pm,ibuprofen + diphenhydramine,combination
+aleve pm,naproxen + diphenhydramine,combination
+vicoprofen,hydrocodone + ibuprofen,combination
+tylenol,acetaminophen,brand
+percocet,oxycodone + acetaminophen,combination
+ecotrin,aspirin,brand
+zestril,lisinopril,brand
+prinivil,lisinopril,brand
+qbrelis,lisinopril,brand
+zestoretic,lisinopril + hydrochlorothiazide,combination
+cozaar,losartan,brand
+hyzaar,losartan + hydrochlorothiazide,combination
+aldactone,spironolactone,brand
+klor-con,potassium chloride,brand
+k-tab,potassium chloride,brand
+glucophage,metformin,brand
+coumadin,warfarin,brand
+jantoven,warfarin,brand
+cordarone,amiodarone,brand
+pacerone,amiodarone,brand
+diflucan,fluconazole,brand
+lasix,furosemide,brand
+rayos,prednisone,brand
+lipitor,atorvastatin,brand
+zocor,simvastatin,brand
+biaxin,clarithromycin,brand
+lopid,gemfibrozil,brand
+norvasc,amlodipine,brand
+synthroid,levothyroxine,brand
+levoxyl,levothyroxine,brand
+unithroid,levothyroxine,brand
+euthyrox,levothyroxine,brand
+tums,calcium carbonate,brand
+prilosec,omeprazole,brand
+lopressor,metoprolol,brand
+toprol xl,metoprolol,brand
+calan,verapamil,brand
+verelan,verapamil,brand
+lanoxin,digoxin,brand
+zoloft,sertraline,brand
+ultram,tramadol,brand
+xanax,alprazolam,brand
+oxycontin,oxycodone,brand
+roxicodone,oxycodone,brand
+plavix,clopidogrel,brand
+acetylsalicylic acid,aspirin,synonym
+paracetamol,acetaminophen,synonym
+metformin hydrochloride,metformin,synonym
+levothyroxine sodium,levothyroxine,synonym
+metoprolol succinate,metoprolol,synonym
+metoprolol tartrate,metoprolol,synonym
+atorvastatin calcium,atorvastatin,synonym
+amlodipine besylate,amlodipine,synonym
+losartan potassium,losartan,synonym
+sertraline hydrochloride,sertraline,synonym
+naproxen sodium,naproxen,synonym
+oxycodone hydrochloride,oxycodone,synonym
+tramadol hydrochloride,tramadol,synonym
+clopidogrel bisulfate,clopidogrel,synonym
+verapamil hydrochloride,verapamil,synonym
+amiodarone hydrochloride,amiodarone,synonym
+warfarin sodium,warfarin,synonym
+lisinopril dihydrate,lisinopril,synonym
+
