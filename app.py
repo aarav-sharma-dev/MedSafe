@@ -26,6 +26,7 @@ import streamlit as st
 
 import ai_explain
 import alerts
+import clinical_api
 import config
 import dataset_import
 import db
@@ -33,6 +34,7 @@ import drug_data
 import interactions
 import medications
 import ocr_service
+import tall_man_lettering
 import ui_theme
 from interactions import CheckStatus, Ingredient, MedForCheck
 from translations import (
@@ -1603,6 +1605,18 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
             unsafe_allow_html=True,
         )
 
+    # 3.5 Interactive Polypharmacy Pairwise Interaction Matrix
+    if len(active_meds) >= 2:
+        with st.expander(
+            f"📊 Interactive Polypharmacy Interaction Matrix ({len(active_meds)} active medicines)",
+            expanded=True,
+        ):
+            st.caption(
+                "Pairwise overview across your active medication list. "
+                "Look-Alike, Sound-Alike (LASA) medicines are shown with FDA/ISMP Tall Man Lettering."
+            )
+            ui_theme.render_polypharmacy_matrix(active_meds, report, language=lang)
+
     # 4. Pairwise Results
     st.subheader(f"Pairwise Interaction Results ({len(report.results)} pair(s))")
     if not report.results:
@@ -1762,6 +1776,143 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
                     audio_bytes = synthesize_speech(f_exp.as_text(), lang)
                     if audio_bytes:
                         st.audio(audio_bytes, format="audio/mp3")
+
+    # 6. Multi-Endpoint openFDA Clinical Safety Profile (SPL, FAERS .exact, Recalls & Shortages)
+    st.markdown("---")
+    st.subheader("🛡️ U.S. FDA openFDA Clinical Safety Profile (Labeling, FAERS, Recalls & Shortages)")
+    st.caption(
+        "Queries four official openFDA endpoints (`label.json`, `event.json` with `.exact` MedDRA phrase counting, "
+        "`enforcement.json` ongoing recalls, and `shortages.json`) using a token-bucket rate pacer and local SQLite cache."
+    )
+    profile_med_options = [m.generic_name or m.display_name for m in active_meds]
+    if proposed_med and proposed_med.display_name not in profile_med_options:
+        profile_med_options.insert(0, proposed_med.display_name)
+
+    pf_col1, pf_col2 = st.columns([3, 2])
+    selected_fda_drug = pf_col1.selectbox(
+        "Select a medicine from your regimen to inspect official FDA records:",
+        options=profile_med_options,
+        format_func=lambda d: tall_man_lettering.get_tall_man_display_name(d) or d,
+        key="checker_fda_profile_select",
+    )
+    if pf_col2.button(
+        "🔎 Load 4-Endpoint openFDA Profile",
+        key="btn_load_openfda_profile",
+        type="primary",
+        use_container_width=True,
+    ):
+        skeleton_slot = st.empty()
+        with skeleton_slot.container():
+            ui_theme.render_skeleton_loader(
+                lines=4,
+                label=f"Querying openFDA Labeling, FAERS (.exact), Recalls & Shortages for {selected_fda_drug}...",
+            )
+        st.session_state["active_fda_profile"] = clinical_api.build_safety_profile(selected_fda_drug)
+        st.session_state["active_fda_profile_drug"] = selected_fda_drug
+        skeleton_slot.empty()
+
+    fda_prof: clinical_api.SafetyProfile | None = st.session_state.get("active_fda_profile")
+    if fda_prof and st.session_state.get("active_fda_profile_drug") == selected_fda_drug:
+        lasa_info = drug_data.get_lasa_warning(selected_fda_drug)
+        if lasa_info:
+            ui_theme.render_lasa_warning_card(lasa_info)
+
+        # 6A. Label Safety Sections (Boxed Warning, Contraindications, Section 7 Drug Interactions)
+        if fda_prof.label.ok and isinstance(fda_prof.label.data, dict) and fda_prof.label.data.get("found"):
+            lbl_data = fda_prof.label.data
+            if lbl_data.get("boxed_warning"):
+                ui_theme.render_nhs_warning_callout(
+                    f"FDA Boxed Warning for {selected_fda_drug.title()}",
+                    "This medication carries an official FDA Boxed Warning. Do not stop taking a prescribed medicine without speaking to your prescriber.",
+                    category="BOXED WARNING",
+                    severity="major",
+                    spl_section_title="Expand Official FDA Boxed Warning (SPL Text)",
+                    spl_text=lbl_data["boxed_warning"],
+                    source_label=f"openFDA SPL (Effective: {lbl_data.get('effective_time') or 'n/a'})",
+                )
+            if lbl_data.get("contraindications"):
+                ui_theme.render_nhs_warning_callout(
+                    f"Contraindications for {selected_fda_drug.title()}",
+                    "Situations where the FDA label states this medication should generally not be used.",
+                    category="CONTRAINDICATION",
+                    severity="major",
+                    spl_section_title="Expand Official FDA Contraindications (SPL Text)",
+                    spl_text=lbl_data["contraindications"],
+                    source_label="U.S. FDA openFDA Structured Product Labeling",
+                )
+            if lbl_data.get("drug_interactions") or lbl_data.get("warnings"):
+                ui_theme.render_nhs_warning_callout(
+                    f"FDA Section 7 Drug Interactions & Warnings ({selected_fda_drug.title()})",
+                    "Supplementary manufacturer label context. Review alongside the deterministic interaction report above.",
+                    category="FDA SPL SECTION 7",
+                    severity="info",
+                    spl_section_title="Expand FDA Label Drug Interactions & Warnings Excerpt",
+                    spl_text=lbl_data.get("drug_interactions") or lbl_data.get("warnings"),
+                    source_label="U.S. FDA openFDA Drug Labeling API",
+                )
+        elif not fda_prof.label.ok:
+            st.info(f"FDA Drug Labeling lookup status: `{fda_prof.label.error_code}`.")
+
+        # 6B. Ongoing FDA Recalls (enforcement.json)
+        if fda_prof.recalls.ok:
+            recalls_data = fda_prof.recalls.data or []
+            if recalls_data:
+                for r_item in recalls_data:
+                    ui_theme.render_nhs_warning_callout(
+                        f"Ongoing FDA Recall ({r_item.get('classification') or 'Enforcement'}) — {r_item.get('recalling_firm') or ''}",
+                        f"<strong>Reason:</strong> {html.escape(r_item.get('reason_for_recall') or 'See details')}<br/>"
+                        f"<strong>Initiated:</strong> <span class='ms-mono-code'>{html.escape(r_item.get('recall_initiation_date') or 'n/a')}</span>",
+                        category="ACTIVE RECALL",
+                        severity="major",
+                        spl_section_title="Expand Product & Lot Code Details (Verify with Pharmacist)",
+                        spl_text=f"Product: {r_item.get('product_description') or 'n/a'} | Lot/Code Info: {r_item.get('code_info') or 'n/a'}",
+                        source_label="U.S. FDA openFDA Recall Enforcement Reports",
+                    )
+            else:
+                st.caption("✓ No ongoing FDA recall enforcement records matched this generic name.")
+        else:
+            st.caption(f"Recall lookup status: `{fda_prof.recalls.error_code}`.")
+
+        # 6C. FDA Drug Shortages (shortages.json)
+        if fda_prof.shortages.ok:
+            shortages_data = fda_prof.shortages.data or []
+            if shortages_data:
+                s0 = shortages_data[0]
+                ui_theme.render_nhs_warning_callout(
+                    f"FDA Drug Shortage Registry Entry ({s0.get('status') or 'Reported'})",
+                    f"<strong>Availability:</strong> {html.escape(s0.get('availability') or 'See pharmacy')}<br/>"
+                    f"<strong>Dosage form:</strong> {html.escape(s0.get('dosage_form') or 'n/a')} &middot; "
+                    f"<strong>Updated:</strong> <span class='ms-mono-code'>{html.escape(s0.get('update_date') or 'n/a')}</span>",
+                    category="DRUG SHORTAGE",
+                    severity="moderate",
+                    spl_section_title="Expand Shortage Reason & Refill Guidance",
+                    spl_text=s0.get("shortage_reason") or "Contact your pharmacy ahead of time when requesting refills.",
+                    source_label="U.S. FDA openFDA Drug Shortages API",
+                )
+            else:
+                st.caption("✓ No active national shortage entries matched in the FDA Drug Shortages database.")
+
+        # 6D. FAERS Top Adverse Reaction Counts (.exact phrase aggregation)
+        if fda_prof.adverse_reactions.ok and fda_prof.adverse_reactions.data:
+            top_terms = fda_prof.adverse_reactions.data[:8]
+            terms_html = ", ".join(
+                f"<strong>{html.escape(term)}</strong> (<span class='ms-mono-code'>{cnt:,}</span>)"
+                for term, cnt in top_terms
+            )
+            st.markdown(
+                f"""
+                <div class="ms-secondary-card">
+                    <div style="font-weight:600;margin-bottom:6px;">
+                        FAERS Most Frequently Reported Adverse Event Phrases (<code>reactionmeddrapt.exact</code>)
+                    </div>
+                    <div style="margin-bottom:8px;">{terms_html}</div>
+                    <div style="font-size:0.88em;color:var(--ms-text-muted);">
+                        <strong>Epidemiological Context:</strong> {html.escape(" ".join(fda_prof.adverse_reactions.limitations))}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 # --- Section 5: Daily Schedule & In-App Checklist --------------------------
@@ -2243,5 +2394,6 @@ elif sec_key == "settings":
     render_settings_privacy(current_db, current_lang, current_demo)
 
 st.divider()
+ui_theme.render_clinical_metadata_footer()
 st.caption(t("medical_disclaimer", current_lang))
 st.caption(f"{drug_data.NLM_ATTRIBUTION} · {drug_data.OPENFDA_ATTRIBUTION}")

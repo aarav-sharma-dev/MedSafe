@@ -24,6 +24,7 @@ from __future__ import annotations
 import difflib
 import re
 import time
+import unicodedata
 from dataclasses import dataclass, field
 
 import requests
@@ -31,6 +32,12 @@ import requests
 import config
 from dataset_import import normalize_name
 from interactions import Ingredient
+from tall_man_lettering import (
+    LASA_CONFUSION_PAIRS,
+    compute_tall_man_pair,
+    get_tall_man_display_name,
+    render_tall_man_html,
+)
 
 RXNORM_BASE = "https://rxnav.nlm.nih.gov/REST"
 OPENFDA_LABEL = "https://api.fda.gov/drug/label.json"
@@ -137,229 +144,8 @@ KNOWN_SHORT_DRUG_NAMES: frozenset[str] = frozenset(
 MIN_CANDIDATE_SIMILARITY: float = 0.78
 
 # --- FDA Look-Alike / Sound-Alike (LASA) Confusion Registry ----------------
-
-LASA_CONFUSION_PAIRS: dict[str, dict[str, str]] = {
-    "amoxicillin": {
-        "drug": "amoxicillin",
-        "tall_man": "amoxiCILLIN",
-        "purpose": "Antibiotic used to treat bacterial infections",
-        "confused_with": "amoxapine",
-        "confused_tall_man": "amoxAPINE",
-        "confused_purpose": "Antidepressant medication",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **amoxiCILLIN** "
-            "(an antibiotic for infections) or **amoxAPINE** (an antidepressant)."
-        ),
-    },
-    "amoxapine": {
-        "drug": "amoxapine",
-        "tall_man": "amoxAPINE",
-        "purpose": "Antidepressant medication",
-        "confused_with": "amoxicillin",
-        "confused_tall_man": "amoxiCILLIN",
-        "confused_purpose": "Antibiotic used to treat bacterial infections",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **amoxAPINE** "
-            "(an antidepressant) or **amoxiCILLIN** (an antibiotic for infections)."
-        ),
-    },
-    "hydralazine": {
-        "drug": "hydralazine",
-        "tall_man": "hydrALAZINE",
-        "purpose": "Blood pressure medication (vasodilator)",
-        "confused_with": "hydroxyzine",
-        "confused_tall_man": "hydrOXYzine",
-        "confused_purpose": "Allergy, itching, or anxiety medication (antihistamine)",
-        "warning": (
-            "Look-Alike Name Check: **hydrALAZINE** (for blood pressure) and "
-            "**hydrOXYzine** (for allergies/itching/anxiety) look very similar on labels. "
-            "Please double-check the middle letters (`-ALAZINE` vs `-OXYzine`) on your bottle."
-        ),
-    },
-    "hydroxyzine": {
-        "drug": "hydroxyzine",
-        "tall_man": "hydrOXYzine",
-        "purpose": "Allergy, itching, or anxiety medication (antihistamine)",
-        "confused_with": "hydralazine",
-        "confused_tall_man": "hydrALAZINE",
-        "confused_purpose": "Blood pressure medication (vasodilator)",
-        "warning": (
-            "Look-Alike Name Check: **hydrOXYzine** (for allergies/itching/anxiety) and "
-            "**hydrALAZINE** (for blood pressure) look very similar on labels. "
-            "Please double-check the middle letters (`-OXYzine` vs `-ALAZINE`) on your bottle."
-        ),
-    },
-    "glipizide": {
-        "drug": "glipizide",
-        "tall_man": "glipiZIDE",
-        "purpose": "Diabetes blood-sugar medication (sulfonylurea)",
-        "confused_with": "glyburide",
-        "confused_tall_man": "glyBURIDE",
-        "confused_purpose": "Diabetes medication (carries higher low-blood-sugar risk in older adults)",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **glipiZIDE** "
-            "or **glyBURIDE** (both treat diabetes, but they are different prescriptions)."
-        ),
-    },
-    "glyburide": {
-        "drug": "glyburide",
-        "tall_man": "glyBURIDE",
-        "purpose": "Diabetes medication (carries higher low-blood-sugar risk in older adults)",
-        "confused_with": "glipizide",
-        "confused_tall_man": "glipiZIDE",
-        "confused_purpose": "Diabetes blood-sugar medication (sulfonylurea)",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **glyBURIDE** "
-            "or **glipiZIDE** (both treat diabetes, but they are different prescriptions)."
-        ),
-    },
-    "metformin": {
-        "drug": "metformin",
-        "tall_man": "metFORMIN",
-        "purpose": "Diabetes blood-sugar medication",
-        "confused_with": "metronidazole",
-        "confused_tall_man": "metRONIDAZOLE",
-        "confused_purpose": "Antibiotic used to treat infections",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **metFORMIN** "
-            "(for diabetes) or **metRONIDAZOLE** (an antibiotic)."
-        ),
-    },
-    "metronidazole": {
-        "drug": "metronidazole",
-        "tall_man": "metRONIDAZOLE",
-        "purpose": "Antibiotic used to treat infections",
-        "confused_with": "metformin",
-        "confused_tall_man": "metFORMIN",
-        "confused_purpose": "Diabetes blood-sugar medication",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **metRONIDAZOLE** "
-            "(an antibiotic) or **metFORMIN** (for diabetes)."
-        ),
-    },
-    "prednisone": {
-        "drug": "prednisone",
-        "tall_man": "predniSONE",
-        "purpose": "Oral corticosteroid for inflammation",
-        "confused_with": "prednisolone",
-        "confused_tall_man": "prednisoLONE",
-        "confused_purpose": "Corticosteroid (different formulation)",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **predniSONE** "
-            "or **prednisoLONE**."
-        ),
-    },
-    "prednisolone": {
-        "drug": "prednisolone",
-        "tall_man": "prednisoLONE",
-        "purpose": "Corticosteroid for inflammation",
-        "confused_with": "prednisone",
-        "confused_tall_man": "predniSONE",
-        "confused_purpose": "Oral corticosteroid",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **prednisoLONE** "
-            "or **predniSONE**."
-        ),
-    },
-    "clonidine": {
-        "drug": "clonidine",
-        "tall_man": "clonIDINE",
-        "purpose": "Blood pressure medication",
-        "confused_with": "clonazepam",
-        "confused_tall_man": "clonAZEPAM",
-        "confused_purpose": "Anxiety or seizure medication (benzodiazepine)",
-        "warning": (
-            "Look-Alike Name Check: **clonIDINE** (for blood pressure) and "
-            "**clonAZEPAM** (for anxiety/seizures) start with the same letters. "
-            "Please verify the ending (`-IDINE` vs `-AZEPAM`) on your bottle."
-        ),
-    },
-    "clonazepam": {
-        "drug": "clonazepam",
-        "tall_man": "clonAZEPAM",
-        "purpose": "Anxiety or seizure medication (benzodiazepine)",
-        "confused_with": "clonidine",
-        "confused_tall_man": "clonIDINE",
-        "confused_purpose": "Blood pressure medication",
-        "warning": (
-            "Look-Alike Name Check: **clonAZEPAM** (for anxiety/seizures) and "
-            "**clonIDINE** (for blood pressure) start with the same letters. "
-            "Please verify the ending (`-AZEPAM` vs `-IDINE`) on your bottle."
-        ),
-    },
-    "celecoxib": {
-        "drug": "celecoxib",
-        "tall_man": "celeCOXIB (Celebrex)",
-        "purpose": "Arthritis & pain reliever (NSAID)",
-        "confused_with": "citalopram",
-        "confused_tall_man": "citaloPRAM (Celexa)",
-        "confused_purpose": "Antidepressant medication",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **celeCOXIB / Celebrex** "
-            "(for arthritis pain) or **citaloPRAM / Celexa** (an antidepressant)."
-        ),
-    },
-    "citalopram": {
-        "drug": "citalopram",
-        "tall_man": "citaloPRAM (Celexa)",
-        "purpose": "Antidepressant medication",
-        "confused_with": "celecoxib",
-        "confused_tall_man": "celeCOXIB (Celebrex)",
-        "confused_purpose": "Arthritis & pain reliever (NSAID)",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **citaloPRAM / Celexa** "
-            "(an antidepressant) or **celeCOXIB / Celebrex** (for arthritis pain)."
-        ),
-    },
-    "losartan": {
-        "drug": "losartan",
-        "tall_man": "loSARTAN",
-        "purpose": "Blood pressure medication (ARB)",
-        "confused_with": "valsartan",
-        "confused_tall_man": "valSARTAN",
-        "confused_purpose": "Blood pressure medication (ARB — different dosing)",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **loSARTAN** "
-            "or **valSARTAN**."
-        ),
-    },
-    "valsartan": {
-        "drug": "valsartan",
-        "tall_man": "valSARTAN",
-        "purpose": "Blood pressure medication (ARB)",
-        "confused_with": "losartan",
-        "confused_tall_man": "loSARTAN",
-        "confused_purpose": "Blood pressure medication (ARB — different dosing)",
-        "warning": (
-            "Look-Alike Name Check: Verify whether your bottle says **valSARTAN** "
-            "or **loSARTAN**."
-        ),
-    },
-    "bupropion": {
-        "drug": "bupropion",
-        "tall_man": "buPROPion",
-        "purpose": "Mood or smoking-cessation medication",
-        "confused_with": "buspirone",
-        "confused_tall_man": "busPIRone",
-        "confused_purpose": "Anxiety medication",
-        "warning": (
-            "Look-Alike Name Check: **buPROPion** and **busPIRone** look and sound "
-            "very similar. Please verify the exact letters on your bottle."
-        ),
-    },
-    "buspirone": {
-        "drug": "buspirone",
-        "tall_man": "busPIRone",
-        "purpose": "Anxiety medication",
-        "confused_with": "bupropion",
-        "confused_tall_man": "buPROPion",
-        "confused_purpose": "Mood or smoking-cessation medication",
-        "warning": (
-            "Look-Alike Name Check: **busPIRone** and **buPROPion** look and sound "
-            "very similar. Please verify the exact letters on your bottle."
-        ),
-    },
-}
+# Imported from tall_man_lettering.py (FDA Table 1 & ISMP Table 2 LASA groups +
+# CD3 / Mid-Tall Man comparator algorithm).
 
 
 def get_lasa_warning(drug_or_ingredient_name: str | None) -> dict[str, str] | None:
@@ -434,6 +220,11 @@ class NormalizationResult:
     error_message: str | None = None
     uncertainty_reasons: list[str] = field(default_factory=list)
     lasa_warnings: list[dict[str, str]] = field(default_factory=list)
+
+    @property
+    def needs_confirmation(self) -> bool:
+        """Alias for ``requires_confirmation`` used by the clinical verification pipeline."""
+        return self.requires_confirmation
 
 
 # Documented local catalog of common medications, antibiotics, cardiovascular,
@@ -1289,10 +1080,39 @@ def is_boilerplate_or_noise_token(token: str) -> bool:
     return False
 
 
+def ocr_cleaner(raw_text: str) -> dict[str, str | None]:
+    """Sanitize raw user or camera-OCR medication text:
+    * Normalizes Unicode ligatures (NFKC, e.g. ``\\ufb01`` -> ``fi``) and strips
+      invisible zero-width characters.
+    * Resolves digit-letter confusions (``0``/``O``, ``1``/``l``/``I``) and
+      ``rn`` -> ``m`` OCR ligature errors on medication tokens via
+      :func:`denoise_ocr_drug_token`.
+    * Extracts dosage strength and dosage form via deterministic regular expressions.
+    """
+    norm_text = unicodedata.normalize("NFKC", raw_text or "")
+    norm_text = "".join(ch for ch in norm_text if unicodedata.category(ch) != "Cf")
+    norm_text = " ".join(norm_text.split())
+    base_name, strength, dose_form = parse_medication_query(norm_text)
+    denoised_tokens = [
+        denoise_ocr_drug_token(tok) if len(tok) >= 6 else tok
+        for tok in base_name.split()
+    ]
+    cleaned_base = " ".join(denoised_tokens).strip()
+    parts = [p for p in (cleaned_base, strength, dose_form) if p]
+    return {
+        "raw": raw_text or "",
+        "cleaned_query": " ".join(parts),
+        "base_name": cleaned_base,
+        "strength": strength,
+        "dose_form": dose_form,
+    }
+
+
 def parse_medication_query(raw_text: str) -> tuple[str, str | None, str | None]:
     """Extract (base_drug_name, strength, dose_form) from a string like
     'Amoxicillin 500 mg Capsules' or 'LISINOPRIL 10MG ORAL TAB'."""
-    text = (raw_text or "").strip()
+    text = unicodedata.normalize("NFKC", (raw_text or "")).strip()
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
     if not text:
         return "", None, None
 

@@ -182,3 +182,72 @@ def test_openfda_label_parsing_and_error_handling() -> None:
         session=_FailingSession(),  # type: ignore[arg-type]
     )
     assert empty == {}
+
+
+def test_fda_ismp_tall_man_lettering_engine_and_cd3_algorithm() -> None:
+    """Verify the curated FDA Table 1 / ISMP Table 2 LASA dictionary, CD3
+    comparator algorithm (including mid-word 'i' lowercase rule), HTML bold
+    renderer, and ocr_cleaner sanitization."""
+    import tall_man_lettering as tml
+
+    expected_tall_man = {
+        "hydralazine": "hydrALAZINE",
+        "hydrochlorothiazide": "hydroCHLOROthiazide",
+        "hydroxyzine": "hydrOXYzine",
+        "trazodone": "traZODone",
+        "tramadol": "traMADol",
+        "bupropion": "buPROPion",
+        "buspirone": "busPIRone",
+        "metformin": "metFORMIN",
+        "metronidazole": "metroNIDAZOLE",
+        "alprazolam": "ALPRAZolam",
+        "lorazepam": "LORazepam",
+        "clonazepam": "clonazePAM",
+        "amlodipine": "amLODIPine",
+        "amiloride": "aMILoride",
+        "carbamazepine": "carBAMazepine",
+        "oxcarbazepine": "OXcarbazepine",
+        "celebrex": "CeleBREX",
+        "celexa": "CeleXA",
+        "humalog": "HumaLOG",
+        "humulin": "HumuLIN",
+        "novolog": "NovoLOG",
+        "novolin": "NovoLIN",
+        "prilosec": "PriLOSEC",
+        "prozac": "PROzac",
+        "oxycodone": "oxyCODONE",
+        "hydrocodone": "HYDROCODONE",
+        "oxymorphone": "oxyMORphone",
+        "pyridostigmine": "pyRIDostigmine",
+        "physostigmine": "PHYSostigmine",
+        "cyclophosphamide": "cycloPHOSphamide",
+        "cyclosporine": "cycloSPORINE",
+        "cycloserine": "cycloSERINE",
+        "droperidol": "droPERidol",
+        "dronabinol": "droNABinol",
+        "dexamethasone": "dexAMETHasone",
+        "dexmedetomidine": "dexmedeTOMIDine",
+    }
+    for drug, expected in expected_tall_man.items():
+        assert tml.get_tall_man_display_name(drug) == expected
+
+    # Verify CD3 comparator leaves shared prefixes & suffixes lowercase, caps <= 3 central
+    # distinguishing chars, and keeps mid-word 'i' lowercase:
+    tm_a, tm_b = tml.compute_tall_man_pair("cefuroxime", "ceftazidime", cd3_limit=True)
+    assert tm_a == "cefUROxime"
+    assert tm_b == "cefTAZidime"
+
+    # Mid-word 'i' inside distinguishing segment must stay lowercase 'i'
+    tm_c, tm_d = tml.compute_tall_man_pair("glipizide", "glyburide", cd3_limit=True)
+    assert "I" not in tm_c[1:]  # mid-word 'i' never uppercase
+
+    # Verify HTML renderer wraps uppercase distinguishing blocks in <strong class="ms-tall-man-upper">
+    rendered = tml.render_tall_man_html("hydrOXYzine")
+    assert '<strong class="ms-tall-man-upper">OXY</strong>' in rendered
+
+    # Verify ocr_cleaner normalizes Unicode ligatures, OCR swaps, and extracts strength
+    cleaned = drug_data.ocr_cleaner("  Amoxici11in\u200b 500mg Capsules ")
+    assert cleaned["base_name"] == "amoxicillin"
+    assert cleaned["strength"] == "500 mg"
+    assert cleaned["dose_form"] == "Oral Capsule"
+
