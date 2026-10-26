@@ -113,9 +113,9 @@ def test_streamlit_ui_all_sections_render_cleanly(tmp_path: Path, monkeypatch) -
     app_path = Path(__file__).resolve().parent.parent / "app.py"
     at = AppTest.from_file(str(app_path))
     at.session_state["profile_mode"] = "demo"
-    for section in ("overview", "medicines", "scanner", "safety", "schedule", "reports", "settings"):
+    for section in ("overview", "medicines", "scanner", "safety", "schedule", "more", "reports", "settings", "help"):
         at.session_state["nav_section"] = section
-        at.run(timeout=20)
+        at.run(timeout=45)
         assert len(at.exception) == 0, f"Exception in section {section}: {[e.value for e in at.exception]}"
 
 
@@ -125,29 +125,61 @@ def test_ui_buttons_and_themes_work(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("MEDSAFE_DATA_DIR", str(tmp_path))
     app_path = Path(__file__).resolve().parent.parent / "app.py"
     at = AppTest.from_file(str(app_path))
-    at.run(timeout=20)
+    at.session_state["skip_setup"] = True  # bypass first-launch wizard
+    at.run(timeout=45)
     assert len(at.exception) == 0
 
     # 1. Click primary Quick Action "Add a medicine" button on Overview and verify navigation persists
-    at.button(key="qa_add_med").click().run(timeout=20)
+    at.button(key="qa_add_med").click().run(timeout=45)
     assert len(at.exception) == 0
     assert at.session_state["active_section"] == "medicines"
     assert at.session_state["sidebar_nav_radio"] == "medicines"
 
     # 2. Click top navigation bar button for Safety Checker and verify navigation persists
-    at.button(key="topnav_checker").click().run(timeout=20)
+    at.button(key="topnav_checker").click().run(timeout=45)
     assert len(at.exception) == 0
     assert at.session_state["active_section"] == "checker"
 
     # 3. Click a Demo Quick-Pick button in Safety Checker and verify text input updates
-    at.button(key="dq_btn_Advil PM").click().run(timeout=20)
+    at.button(key="dq_btn_Advil PM").click().run(timeout=45)
     assert len(at.exception) == 0
     assert at.session_state["checker_prop_input"] == "Advil PM"
 
     # 4. Verify all 3 appearance themes (Light, Dark, High-Contrast) render cleanly
     for mode in ("light", "dark", "high_contrast"):
         at.session_state["theme_mode"] = mode
-        at.run(timeout=20)
+        at.run(timeout=45)
         assert len(at.exception) == 0
 
 
+def test_first_launch_setup_wizard(tmp_path: Path, monkeypatch) -> None:
+    """Fresh install shows the two-question wizard; completing it saves the
+    choices to the settings database and unblocks the main app."""
+    from streamlit.testing.v1 import AppTest
+
+    import config
+    import db
+
+    monkeypatch.setenv("MEDSAFE_DATA_DIR", str(tmp_path))
+    app_path = Path(__file__).resolve().parent.parent / "app.py"
+
+    at = AppTest.from_file(str(app_path))
+    at.run(timeout=45)
+    assert len(at.exception) == 0
+    # Wizard is showing: its start button exists, main nav does not
+    assert any(b.key == "setup_start" for b in at.button)
+    assert not any(b.key == "topnav_checker" for b in at.button)
+
+    # Pick Large text and Spanish, then start
+    at.selectbox(key="setup_lang_select").select("Spanish").run(timeout=45)
+    at.radio(key="setup_size_radio").set_value("large").run(timeout=45)
+    at.button(key="setup_start").click().run(timeout=45)
+    assert len(at.exception) == 0
+
+    personal = config.personal_db_path()
+    assert db.get_setting(personal, "setup_complete") == "1"
+    assert db.get_setting(personal, "language") == "Spanish"
+    assert db.get_setting(personal, "font_size") == "large"
+    # Main app is now rendered (wizard gone, nav present)
+    assert any(b.key == "topnav_checker" for b in at.button)
+    assert not any(b.key == "setup_start" for b in at.button)

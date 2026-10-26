@@ -19,8 +19,15 @@ data/*.sqlite3-journal
 data/*.sqlite3-wal
 data/*.sqlite3-shm
 
+# Virtual environments
+.venv/
+venv/
+
 # Temporary uploads, logs, and OS metadata
 tmp/
 *.log
 .DS_Store
 Thumbs.db
+
+# Raw DDInter download files (CC BY-NC-SA; download from ddinter2.scbdd.com)
+ddinter_raw/

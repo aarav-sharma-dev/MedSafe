@@ -28,6 +28,18 @@ from typing import Iterable
 
 import streamlit as st
 
+
+def html_markdown(block: str) -> None:
+    """Render an HTML fragment via st.markdown with indentation stripped.
+
+    Markdown treats lines indented by 4+ spaces as code blocks, so indented
+    triple-quoted HTML can render as raw source. Stripping per-line leading
+    whitespace (harmless for HTML) prevents that entire bug class.
+    """
+    cleaned = "\n".join(l.strip() for l in block.splitlines() if l.strip())
+    st.markdown(cleaned, unsafe_allow_html=True)
+
+
 import config
 from interactions import CheckReport, CheckStatus, PairResult
 from medications import MedicationRecord
@@ -48,18 +60,15 @@ FONT_SCALE_PX = {
 }
 
 THEME_MODES: dict[str, str] = {
-    "light": "Light Mode (Clinical Daylight)",
-    "dark": "Dark Mode (Low Glare)",
-    "high_contrast": "High Contrast (WCAG AAA Low Vision)",
+    "light": "☀️ Light",
+    "dark": "🌙 Dark",
+    "high_contrast": "👁️ High contrast",
 }
 
 THEME_DESCRIPTIONS: dict[str, str] = {
-    "light": "Stark white (#FFFFFF) surface with near-black (#111111) text and clinical blue (#1A73E8) controls.",
-    "dark": "Low-glare dark slate surface with high-contrast text for evening reading.",
-    "high_contrast": (
-        "WCAG AAA Low-Vision Mode: Pitch-black background, pure white text, high-visibility "
-        "yellow headings, and bold 2.5 px borders for maximum legibility."
-    ),
+    "light": "Bright background with dark text — best for daytime.",
+    "dark": "Dark background with light text — easier on the eyes at night.",
+    "high_contrast": "Black background, white text, extra-bold outlines — best for low vision.",
 }
 
 _PALETTES: dict[str, dict[str, str]] = {
@@ -216,8 +225,7 @@ def inject_theme_css(
     mode = resolve_theme_mode(theme_mode, high_contrast=high_contrast)
     p = _PALETTES[mode]
 
-    st.markdown(
-        f"""
+    html_markdown(f"""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap');
 
@@ -944,10 +952,79 @@ def inject_theme_css(
             font-size: calc(var(--ms-base-size) * 0.88);
             line-height: 1.6;
         }}
+
+        /* --- Bug-fix overrides (keep LAST so they win the cascade) -------- */
+
+        /* 1. Material Symbols icons: broad font-family !important rules above
+           would otherwise break icon ligatures into raw text like
+           "keyboard_double_arrow_right". Always restore the icon font. */
+        [data-testid="stIconMaterial"],
+        [data-testid="stExpanderToggleIcon"],
+        .stApp span[data-testid="stIconMaterial"],
+        .stMarkdown span[data-testid="stIconMaterial"],
+        .stApp [data-testid="stExpanderToggleIcon"],
+        button span[data-testid="stIconMaterial"],
+        summary span[data-testid="stIconMaterial"],
+        [data-testid="stExpander"] summary span[data-testid="stIconMaterial"],
+        span[translate="no"].material-symbols-rounded,
+        .material-symbols-rounded, .material-symbols-outlined {{
+            font-family: "Material Symbols Rounded", "Material Symbols Outlined" !important;
+            font-weight: normal !important;
+            letter-spacing: normal !important;
+            text-transform: none !important;
+            white-space: nowrap !important;
+            overflow: visible !important;
+        }}
+
+        /* 2. Selectbox/dropdowns: BaseWeb renders the open menu in a portal
+           outside .stApp, so theme it explicitly or dark/high-contrast modes
+           show same-on-same text. */
+        [data-baseweb="select"] > div,
+        [data-baseweb="select"] input {{
+            background-color: var(--ms-surface) !important;
+            color: var(--ms-text) !important;
+        }}
+        [data-baseweb="select"] div[value],
+        [data-baseweb="select"] span {{
+            color: var(--ms-text) !important;
+        }}
+        [data-baseweb="popover"] [role="listbox"],
+        ul[data-testid="stSelectboxVirtualDropdown"] {{
+            background-color: var(--ms-surface) !important;
+            border: var(--ms-border-width) solid var(--ms-border) !important;
+        }}
+        /* Options render in a body-level portal with no popover ancestor,
+           so these selectors must work without one. */
+        [role="listbox"] {{
+            background-color: var(--ms-surface) !important;
+            border: var(--ms-border-width) solid var(--ms-border) !important;
+        }}
+        [role="option"], [role="option"] div, [role="option"] span,
+        [data-baseweb="menu"] li, [data-baseweb="menu"] li * {{
+            background-color: transparent !important;
+            color: var(--ms-text) !important;
+        }}
+        [role="option"][aria-selected="true"],
+        [role="option"][aria-selected="true"] div,
+        [role="option"]:hover, [role="option"]:hover div {{
+            background-color: var(--ms-surface-alt) !important;
+            color: var(--ms-heading) !important;
+        }}
+
+        /* 3. Buttons: never truncate labels - wrap onto extra lines instead. */
+        .stButton button, [data-testid="stBaseButton-primary"],
+        [data-testid="stBaseButton-secondary"] {{
+            white-space: normal !important;
+            height: auto !important;
+            min-height: 52px;
+        }}
+        .stButton button p, .stButton button div {{
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+        }}
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        """)
 
 
 def _inline_logo_svg(theme_mode: str = "light") -> str:
@@ -979,42 +1056,34 @@ def render_app_header(
     Apple Health-style privacy indicator, and obvious DEMO indicator when sample data is active."""
     svg = _inline_logo_svg(theme_mode)
     sec_escaped = html.escape(section_title)
-    privacy_text = html.escape(t("privacy_badge_local", language))
+    # Header stays minimal for seniors: logo + current section. The demo pill
+    # appears only in demo mode; privacy details live under More -> Settings.
     demo_pill = (
         f'<span class="ms-badge ms-badge-moderate" role="status">'
         f'[DEMO] {html.escape(t("demo_badge", language))}</span>'
         if is_demo
-        else '<span class="ms-badge ms-badge-teal" role="status">[LOCAL] On-Device Profile</span>'
+        else ""
     )
-    st.markdown(
-        f"""
+    html_markdown(f"""
         <div class="ms-header-card" role="banner">
             <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;">
                 <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
                     <div style="width:210px;max-width:100%;">{svg}</div>
                     <div style="border-left:2px solid var(--ms-border);padding-left:16px;">
                         <div class="ms-card-title">{sec_escaped}</div>
-                        <div class="ms-card-subtitle" style="font-size:0.92em;">
-                            {privacy_text} &middot; Health data belongs to you
-                        </div>
                     </div>
                 </div>
                 <div>{demo_pill}</div>
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """)
     if is_demo:
-        st.markdown(
-            f"""
+        html_markdown(f"""
             <div class="ms-demo-banner" role="region" aria-label="Demonstration mode notice">
                 <strong>[DEMO] {html.escape(t("demo_badge", language))}:</strong>
                 {html.escape(t("demo_banner_text", language))}
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """)
 
 
 def render_stat_card(value: str | int, label: str, sublabel: str = "") -> None:
@@ -1025,16 +1094,13 @@ def render_stat_card(value: str | int, label: str, sublabel: str = "") -> None:
         if sublabel
         else ""
     )
-    st.markdown(
-        f"""
+    html_markdown(f"""
         <div class="ms-stat-box">
             <div class="ms-stat-value">{val_esc}</div>
             <div class="ms-stat-label">{lbl_esc}</div>
             {sub_html}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """)
 
 
 def severity_badge_html(severity_level: str, severity_raw: str | None, language: str = "English") -> str:
@@ -1130,8 +1196,7 @@ def render_medication_card_header(med: MedicationRecord, language: str = "Englis
     )
     instr_line = med.instructions or "No directions entered"
 
-    st.markdown(
-        f"""
+    html_markdown(f"""
         <div class="ms-primary-card">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
                 <div>
@@ -1155,9 +1220,7 @@ def render_medication_card_header(med: MedicationRecord, language: str = "Englis
                 <strong>User-entered directions:</strong> {html.escape(instr_line)}
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """)
 
 
 def pair_card_border_class(pair: PairResult) -> str:
@@ -1221,8 +1284,7 @@ def render_nhs_warning_callout(
             f"</details>"
         )
 
-    st.markdown(
-        f"""
+    html_markdown(f"""
         <div class="{callout_cls}" role="region" aria-label="{html.escape(category)}: {html.escape(title)}">
             <div style="margin-bottom:8px;">
                 <span class="ms-badge {badge_cls}">{html.escape(sym)} {html.escape(category)}</span>
@@ -1235,9 +1297,7 @@ def render_nhs_warning_callout(
             </div>
             {drawer_html}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """)
 
 
 def render_lasa_warning_card(lasa: dict[str, str]) -> None:
@@ -1318,17 +1378,14 @@ def render_polypharmacy_matrix(
                 cells.append('<td><span class="ms-badge ms-badge-moderate">[▲] Confirm identity</span></td>')
         body_rows.append(f"<tr>{''.join(cells)}</tr>")
 
-    st.markdown(
-        f"""
+    html_markdown(f"""
         <div style="overflow-x:auto;">
             <table class="ms-matrix-table" aria-label="Polypharmacy Pairwise Interaction Matrix">
                 <thead><tr>{''.join(header_cells)}</tr></thead>
                 <tbody>{''.join(body_rows)}</tbody>
             </table>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """)
 
 
 def render_skeleton_loader(lines: int = 3, label: str = "Loading clinical safety data...") -> None:
@@ -1337,17 +1394,14 @@ def render_skeleton_loader(lines: int = 3, label: str = "Loading clinical safety
         f'<div class="ms-skeleton-line" style="width:{92 - (i * 12) % 35}%;"></div>'
         for i in range(max(1, lines))
     )
-    st.markdown(
-        f"""
+    html_markdown(f"""
         <div class="ms-secondary-card" role="status" aria-live="polite" aria-label="{html.escape(label)}">
             <div style="font-weight:600;margin-bottom:10px;color:var(--ms-text-muted);">
                 {html.escape(label)}
             </div>
             {bars}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """)
 
 
 def render_clinical_metadata_footer(
@@ -1383,29 +1437,25 @@ def render_clinical_metadata_footer(
     src_items = "".join(f"<li>{html.escape(s)}</li>" for s in sources_list)
     lim_items = "".join(f"<li>{html.escape(l)}</li>" for l in lims_list)
 
-    st.markdown(
-        f"""
-        <footer class="ms-clinical-footer" role="contentinfo" aria-label="Clinical Data Sources, Limitations, and Privacy Notice">
-            <div style="font-family:var(--ms-font-heading);font-weight:600;color:var(--ms-heading);margin-bottom:6px;">
-                Clinical Data Governance, Scope Limitations &amp; On-Device Privacy
+    # Senior-first footer: one quiet line everywhere; the full governance
+    # details live inside an expander so they never dominate a page.
+    with st.expander("ℹ️ Data sources, limitations & privacy"):
+        html_markdown(f"""
+            <div class="ms-clinical-footer" role="contentinfo" aria-label="Clinical data sources, limitations, and privacy notice">
+                <div style="margin-bottom:8px;">
+                    <strong>Data sources:</strong>
+                    <ul style="margin:4px 0 8px 20px;">{src_items}</ul>
+                </div>
+                <div style="margin-bottom:8px;">
+                    <strong>Limitations:</strong>
+                    <ul style="margin:4px 0 8px 20px;">{lim_items}</ul>
+                </div>
+                <div style="margin-bottom:6px;color:var(--ms-text);">
+                    <strong>Disclaimer:</strong> {html.escape(disc)}
+                </div>
+                <div>
+                    <strong>Privacy:</strong> Your medication list, schedule, and dose history are stored
+                    only on this device and are never transmitted or sold.
+                </div>
             </div>
-            <div style="margin-bottom:8px;">
-                <strong>Data Sources (<code>data_sources</code>):</strong>
-                <ul style="margin:4px 0 8px 20px;">{src_items}</ul>
-            </div>
-            <div style="margin-bottom:8px;">
-                <strong>Scope Limitations (<code>limitations</code>):</strong>
-                <ul style="margin:4px 0 8px 20px;">{lim_items}</ul>
-            </div>
-            <div style="margin-bottom:6px;color:var(--ms-text);">
-                <strong>Mandatory FDA &amp; Clinical Disclaimer:</strong> {html.escape(disc)}
-            </div>
-            <div>
-                <strong>On-Device Privacy Standard:</strong> Your health data belongs to you. MedSafe stores your
-                medication list, schedule, and dose history locally on your device in SQLite and never sells or
-                transmits personal health records to third-party servers.
-            </div>
-        </footer>
-        """,
-        unsafe_allow_html=True,
-    )
+            """)

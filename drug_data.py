@@ -1675,6 +1675,47 @@ def resolve_drug_candidates(
     )
 
 
+def lookup_ndc_or_upc(digits: str, *, timeout: float | None = None) -> "str | None":
+    """Resolve a scanned package barcode (UPC-A on OTC boxes, NDC on Rx
+    labels) to a generic drug name via openFDA's NDC directory. Returns None
+    when offline or not found; results still require human confirmation."""
+    digits = "".join(ch for ch in str(digits) if ch.isdigit())
+    if len(digits) < 8:
+        return None
+
+    queries = [f'openfda.upc:"{digits}"']
+    core = digits
+    if len(core) == 12:  # UPC-A wrapping an NDC: drop leading digit + check digit
+        core = core[1:-1]
+    if len(core) == 11:
+        core10_variants = [core[1:], core[:-1]]
+    elif len(core) == 10:
+        core10_variants = [core]
+    else:
+        core10_variants = []
+    for c10 in core10_variants:
+        for a, b in ((4, 8), (5, 9), (5, 8)):
+            queries.append(f'product_ndc:"{c10[:a]}-{c10[a:b]}"')
+    for q in queries:
+        try:
+            resp = requests.get(
+                "https://api.fda.gov/drug/ndc.json",
+                params={"search": q, "limit": 1},
+                timeout=timeout or config.HTTP_TIMEOUT,
+            )
+            if resp.status_code != 200:
+                continue
+            results = resp.json().get("results") or []
+            if results:
+                row = results[0]
+                name = row.get("generic_name") or row.get("brand_name")
+                if name:
+                    return str(name).split(",")[0].strip().lower()
+        except Exception:
+            return None
+    return None
+
+
 def normalize_drug_name(
     raw_text: str,
     *,

@@ -132,6 +132,15 @@ CREATE TABLE IF NOT EXISTS dose_log (
     UNIQUE (schedule_entry_id, log_date)
 );
 
+CREATE TABLE IF NOT EXISTS medication_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    medication_id INTEGER,                -- no FK: history survives deletion
+    event_time    TEXT NOT NULL,
+    event_type    TEXT NOT NULL CHECK (event_type IN
+                  ('added', 'updated', 'paused', 'resumed', 'identity_confirmed', 'removed')),
+    detail        TEXT
+);
+
 CREATE TABLE IF NOT EXISTS check_history (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     checked_at    TEXT NOT NULL,
@@ -155,6 +164,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 # Tables that hold the user's own information (cleared by "delete my data").
 USER_TABLES = (
+    "medication_events",
     "dose_log",
     "schedule_entries",
     "medication_ingredients",

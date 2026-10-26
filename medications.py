@@ -276,6 +276,10 @@ def add_medication(
                     "VALUES (?, ?, ?, ?)",
                     (med_id, hhmm, _clean_opt(label, 80), stamp),
                 )
+        conn.execute(
+            "INSERT INTO medication_events (medication_id, event_time, event_type, detail) VALUES (?, ?, 'added', ?)",
+            (med_id, stamp, f"{display_name.strip()}{' ' + strength if strength else ''} (source: {entry_source})"),
+        )
     return med_id
 
 
@@ -304,8 +308,13 @@ def update_medication(
     identity_source: str | None = None,
     ingredients: list[Ingredient | dict | str] | None = None,
     schedule_times: list[str | tuple[str, str | None]] | None = None,
+    _event: str | None = "updated",
 ) -> bool:
-    """Update an existing medication record. Returns True if found and updated."""
+    """Update an existing medication record. Returns True if found and updated.
+
+    `_event` names the medication_events entry recorded for this change
+    ('updated' by default; wrappers pass 'paused', 'resumed', or
+    'identity_confirmed'; None suppresses logging)."""
     existing = get_medication(db_path, med_id)
     if existing is None:
         return False
@@ -401,11 +410,33 @@ def update_medication(
                         "VALUES (?, ?, ?, ?)",
                         (med_id, hhmm, lbl, stamp),
                     )
+        if _event:
+            changed = [
+                name
+                for name, val in (
+                    ("name", display_name), ("generic", generic_name), ("brand", brand_name),
+                    ("strength", strength), ("form", dose_form), ("route", route),
+                    ("directions", instructions), ("category", category),
+                    ("prescriber", prescriber), ("pharmacy", pharmacy), ("notes", notes),
+                    ("ingredients", ingredients), ("schedule", schedule_times),
+                )
+                if val is not None
+            ]
+            detail = f"{existing.display_name}"
+            if _event == "updated" and changed:
+                detail += " — changed: " + ", ".join(changed)
+            conn.execute(
+                "INSERT INTO medication_events (medication_id, event_time, event_type, detail) "
+                "VALUES (?, ?, ?, ?)",
+                (med_id, stamp, _event, detail),
+            )
     return True
 
 
 def set_medication_active(db_path: Path, med_id: int, active: bool) -> bool:
-    return update_medication(db_path, med_id, active=active)
+    return update_medication(
+        db_path, med_id, active=active, _event=("resumed" if active else "paused")
+    )
 
 
 def confirm_medication_identity(
@@ -441,13 +472,41 @@ def confirm_medication_identity(
         ingredients=norm_ings,
         identity_status="confirmed",
         identity_source=identity_source,
+        _event="identity_confirmed",
     )
 
 
 def delete_medication(db_path: Path, med_id: int) -> bool:
+    existing = get_medication(db_path, med_id)
     with db.transaction(db_path) as conn:
         cur = conn.execute("DELETE FROM medications WHERE id=?", (med_id,))
+        if cur.rowcount > 0:
+            conn.execute(
+                "INSERT INTO medication_events (medication_id, event_time, event_type, detail) "
+                "VALUES (?, ?, 'removed', ?)",
+                (med_id, db.now_iso(), existing.display_name if existing else f"medication #{med_id}"),
+            )
         return cur.rowcount > 0
+
+
+def list_medication_events(
+    db_path: Path, med_id: int | None = None, limit: int = 100
+) -> list[dict]:
+    """Change history ('added', 'updated', 'paused', 'resumed',
+    'identity_confirmed', 'removed'), newest first."""
+    with db.reader(db_path) as conn:
+        if med_id is None:
+            rows = conn.execute(
+                "SELECT * FROM medication_events ORDER BY event_time DESC, id DESC LIMIT ?",
+                (max(1, limit),),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM medication_events WHERE medication_id=? "
+                "ORDER BY event_time DESC, id DESC LIMIT ?",
+                (med_id, max(1, limit)),
+            ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def _hydrate_medications(conn, rows) -> list[MedicationRecord]:
@@ -751,6 +810,124 @@ def get_recent_dose_history(db_path: Path, days: int = 7) -> list[dict]:
             (since,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+_ADHERENCE_BUCKETS = (
+    ("morning", 0, 659),      # 00:00-10:59 (minutes 0-659)
+    ("midday", 660, 959),     # 11:00-15:59
+    ("evening", 960, 1259),   # 16:00-20:59
+    ("bedtime", 1260, 1439),  # 21:00-23:59
+)
+
+
+def _time_bucket(hhmm: str) -> str:
+    try:
+        hh, mm = hhmm.split(":")
+        minutes = int(hh) * 60 + int(mm)
+    except (ValueError, AttributeError):
+        return "morning"
+    for name, lo, hi in _ADHERENCE_BUCKETS:
+        if lo <= minutes <= hi:
+            return name
+    return "bedtime"
+
+
+def build_adherence_summary(db_path: Path, days: int = 14) -> dict:
+    """Taken / skipped / missed totals over the last `days` days, with the
+    worst time-of-day and worst medicine called out.
+
+    Honest-counting rules: today's doses whose time has not yet arrived are
+    'pending' (not missed), and each schedule entry only counts from the day
+    it was created, so a reminder added yesterday is never 'missed' last week.
+    """
+    today = date.today()
+    now_hhmm = datetime.now().strftime("%H:%M")
+    start = today - timedelta(days=max(1, days) - 1)
+    with db.reader(db_path) as conn:
+        entries = conn.execute(
+            """SELECT s.id, s.time_of_day, s.created_at, m.display_name
+               FROM schedule_entries s JOIN medications m ON m.id = s.medication_id
+               WHERE m.active = 1"""
+        ).fetchall()
+        logs = conn.execute(
+            "SELECT schedule_entry_id, log_date, status FROM dose_log WHERE log_date >= ?",
+            (start.isoformat(),),
+        ).fetchall()
+    log_map = {(r["schedule_entry_id"], r["log_date"]): r["status"] for r in logs}
+
+    taken = skipped = missed = pending = expected = 0
+    missed_by_bucket: dict[str, int] = {}
+    missed_by_med: dict[str, int] = {}
+    for offset in range(max(1, days)):
+        day = start + timedelta(days=offset)
+        if day > today:
+            break
+        d_iso = day.isoformat()
+        for e in entries:
+            if (e["created_at"] or "")[:10] > d_iso:
+                continue  # reminder did not exist yet that day
+            status = log_map.get((e["id"], d_iso))
+            if status is None and d_iso == today.isoformat() and e["time_of_day"] > now_hhmm:
+                pending += 1
+                continue
+            expected += 1
+            if status == "taken":
+                taken += 1
+            elif status == "skipped":
+                skipped += 1
+            else:
+                missed += 1
+                b = _time_bucket(e["time_of_day"])
+                missed_by_bucket[b] = missed_by_bucket.get(b, 0) + 1
+                missed_by_med[e["display_name"]] = missed_by_med.get(e["display_name"], 0) + 1
+
+    worst_bucket = max(missed_by_bucket, key=missed_by_bucket.get) if missed_by_bucket else None
+    worst_med = max(missed_by_med, key=missed_by_med.get) if missed_by_med else None
+    return {
+        "days": days,
+        "since": start.isoformat(),
+        "expected": expected,
+        "taken": taken,
+        "skipped": skipped,
+        "missed": missed,
+        "pending_today": pending,
+        "adherence_pct": round(100 * taken / expected) if expected else None,
+        "worst_bucket": worst_bucket,
+        "worst_bucket_missed": missed_by_bucket.get(worst_bucket, 0) if worst_bucket else 0,
+        "worst_med": worst_med,
+        "worst_med_missed": missed_by_med.get(worst_med, 0) if worst_med else 0,
+        "has_schedule": bool(entries),
+    }
+
+
+def build_adherence_markdown(summary: dict) -> str:
+    """Printable adherence block for the caregiver/pharmacist summary."""
+    if not summary.get("has_schedule"):
+        return "## Dose adherence\n\nNo reminder times are set, so adherence is not tracked.\n"
+    lines = [
+        f"## Dose adherence — last {summary['days']} days (since {summary['since']})",
+        "",
+        f"- Doses due: **{summary['expected']}**",
+        f"- Marked taken: **{summary['taken']}**"
+        + (f" ({summary['adherence_pct']}%)" if summary["adherence_pct"] is not None else ""),
+        f"- Marked skipped: **{summary['skipped']}**",
+        f"- Not marked (possibly missed): **{summary['missed']}**",
+    ]
+    if summary["worst_bucket"] and summary["worst_bucket_missed"]:
+        lines.append(
+            f"- Pattern: most unmarked doses are **{summary['worst_bucket']}** doses "
+            f"({summary['worst_bucket_missed']} of {summary['missed']})."
+        )
+    if summary["worst_med"] and summary["worst_med_missed"]:
+        lines.append(
+            f"- Most affected medicine: **{summary['worst_med']}** "
+            f"({summary['worst_med_missed']} unmarked)."
+        )
+    lines.append(
+        "\n*'Not marked' can mean a missed dose or a dose taken but not logged — "
+        "worth discussing either way.*"
+    )
+    return "\n".join(lines) + "\n"
 
 
 def export_schedule_ics(db_path: Path, days_ahead: int = 7) -> str:

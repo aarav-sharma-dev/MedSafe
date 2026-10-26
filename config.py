@@ -25,8 +25,27 @@ AI_TIMEOUT = float(os.environ.get("MEDSAFE_AI_TIMEOUT", "25"))
 # Gemini (optional). Interactions API, documented at
 # https://ai.google.dev/gemini-api/docs/interactions
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions"
+# Free-tier Gemini keys created in 2026 are limited to 3.x-generation models,
+# and each model has its own (small) free quota. MedSafe walks this chain until
+# one call succeeds, so a quota-exhausted model never silently disables AI.
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_FALLBACK_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite",
+]
+# kept for backward compatibility with earlier call sites
+GEMINI_FALLBACK_MODEL = GEMINI_FALLBACK_MODELS[1]
 GEMINI_MODEL = os.environ.get("MEDSAFE_GEMINI_MODEL", "").strip() or DEFAULT_GEMINI_MODEL
+
+
+def gemini_model_chain() -> list:
+    """Configured model first, then the free-tier fallbacks, deduplicated."""
+    chain = [os.environ.get("MEDSAFE_GEMINI_MODEL", "").strip() or DEFAULT_GEMINI_MODEL]
+    for m in GEMINI_FALLBACK_MODELS:
+        if m not in chain:
+            chain.append(m)
+    return chain
 
 # Metadata for the interaction data that ships with the project. These are
 # hand-entered demonstration records - NOT a professionally verified source.

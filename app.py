@@ -57,13 +57,36 @@ except ImportError:
     TTS_AVAILABLE = False
 
 
-def synthesize_speech(text: str, language: str) -> bytes | None:
-    """Return MP3 bytes for read-aloud, or None if gTTS is unavailable/offline."""
-    if not TTS_AVAILABLE or not (text or "").strip():
+def _tts_supported_codes() -> set[str] | None:
+    """Codes the installed gTTS actually supports, or None if unknowable."""
+    if not TTS_AVAILABLE:
         return None
     try:
+        from gtts.lang import tts_langs
+
+        return set(tts_langs().keys())
+    except Exception:
+        return None
+
+
+def synthesize_speech(text: str, language: str) -> bytes | None:
+    """Return MP3 bytes for read-aloud, or None if gTTS is unavailable,
+    offline, or does not support the requested language (checked at runtime
+    against the installed gTTS's own language list, so an unsupported code
+    hides the audio player instead of erroring)."""
+    if not TTS_AVAILABLE or not (text or "").strip():
+        return None
+    lang_code = TTS_LANG_CODES.get(normalize_language(language), "en")
+    supported = _tts_supported_codes()
+    if supported is not None and lang_code not in supported:
+        # Some gTTS versions list regional variants only (e.g. zh-CN vs zh)
+        base = lang_code.split("-")[0]
+        if base in supported:
+            lang_code = base
+        else:
+            return None
+    try:
         buf = BytesIO()
-        lang_code = TTS_LANG_CODES.get(normalize_language(language), "en")
         gTTS(text=text[:900], lang=lang_code).write_to_fp(buf)
         return buf.getvalue()
     except Exception:
@@ -97,14 +120,27 @@ STARTUP_PROBLEMS = bootstrap_environment(
     str(config.demo_db_path()),
 )
 
+# Senior-first navigation: at most 5 visible choices. Scanning lives inside
+# My Medicines; Reports, Settings, and Help live one tap away under More.
+PRIMARY_SECTION_KEYS = (
+    "overview",
+    "medicines",
+    "checker",
+    "schedule",
+    "more",
+)
+MORE_GROUP_KEYS = ("reports", "settings", "help")
+
 SECTION_KEYS = (
     "overview",
     "medicines",
     "scan",
     "checker",
     "schedule",
+    "more",
     "reports",
     "settings",
+    "help",
 )
 
 # Alias map so tests or external callers using "scanner" or "safety" resolve cleanly
@@ -116,9 +152,22 @@ _SECTION_ALIASES = {
     "checker": "checker",
     "safety": "checker",
     "schedule": "schedule",
+    "more": "more",
     "reports": "reports",
     "settings": "settings",
+    "help": "help",
+    "guide": "help",
+    "how": "help",
 }
+
+
+def _primary_group(section_key: str) -> str:
+    """Which of the 5 primary navigation choices a section belongs to."""
+    if section_key == "scan":
+        return "medicines"
+    if section_key in MORE_GROUP_KEYS:
+        return "more"
+    return section_key if section_key in PRIMARY_SECTION_KEYS else "overview"
 
 
 def _normalize_section(sec: str | None) -> str:
@@ -246,40 +295,98 @@ def _populate_add_med_form_state(
     st.session_state["f_confirm_in"] = bool(cand and norm and norm.exact_match)
 
 
-# --- Sidebar Navigation & Quick Accessibility Controls ---------------------
+def render_safety_preview(db_path: Path, lang: str, display_name: str, ingredient_names: list[str]) -> None:
+    """Instant mini safety check of a medicine being added, shown BEFORE it is
+    saved: interactions and food cautions against the current active list,
+    in glance style. Pure local database - no network."""
+    ings = tuple(Ingredient(n.strip().lower()) for n in ingredient_names if n.strip())
+    actives = medications.active_meds_for_check(db_path)
+    if not ings or not actives:
+        return
+    proposed = MedForCheck("preview", display_name, ings, "confirmed", is_proposed=True)
+    report = interactions.check_medications(db_path, actives, proposed=proposed)
+    ing_set = {i.name for i in ings}
+    hits = [p for p in report.results if p.status == CheckStatus.MATCH_FOUND]
+    foods = [f for f in report.food_findings if f.ingredient in ing_set]
+    _icon = {"major": "🔴", "moderate": "🟠", "minor": "🟡", "unspecified": "⚪"}
 
-def _on_sidebar_radio_change() -> None:
-    chosen = st.session_state.get("sidebar_nav_radio", "overview")
-    navigate_to(chosen)
+    with st.container(border=True):
+        st.markdown(f"#### 👀 {t('glance_title', lang)} — {html.escape(display_name)}")
+        if not hits and not foods:
+            st.markdown(
+                f"🟢 **{html.escape(display_name)}** has no documented interactions "
+                f"with your current medicines."
+            )
+        for p in hits:
+            rec0 = p.records[0] if p.records else None
+            lvl = rec0.severity_level if rec0 else "unspecified"
+            other = p.med_b.display_name if p.med_a.key == "preview" else p.med_a.display_name
+            st.markdown(
+                f"### {_icon.get(lvl, '⚪')} **{html.escape(display_name)} + "
+                f"{html.escape(other)}** — {html.escape(severity_label(lvl, lang))}"
+            )
+        for f_row in foods:
+            st.markdown(
+                f"### 🍊 **{html.escape(f_row.food.title())}** — "
+                f"{html.escape(severity_label(f_row.severity_level, lang))}"
+            )
+        if hits or foods:
+            st.caption(t("severity_legend", lang))
+            st.caption(
+                "You can still add this medicine — see the Safety Checker afterwards "
+                "for the full plain-language explanation, and ask your pharmacist."
+            )
 
+        # FDA quick check at add time: only the safety-critical trio (active
+        # recalls, shortages, boxed warning). Cached per session + on disk;
+        # silent when offline so adding a medicine never blocks on the network.
+        primary_ing = ings[0].name
+        fda_key = f"fda_quick_{primary_ing}"
+        if fda_key not in st.session_state:
+            quick: dict = {}
+            try:
+                rec_res = clinical_api.get_active_recalls(primary_ing, limit=1)
+                quick["recall"] = bool(rec_res.ok and rec_res.data)
+                short_res = clinical_api.get_shortage_status(primary_ing)
+                sh = short_res.data if short_res.ok else None
+                quick["shortage"] = bool(sh and (sh if isinstance(sh, list) else sh.get("shortages")))
+                lbl_res = clinical_api.get_label_safety_sections(primary_ing)
+                quick["boxed"] = bool(
+                    lbl_res.ok and isinstance(lbl_res.data, dict) and lbl_res.data.get("boxed_warning")
+                )
+                quick["checked"] = True
+            except Exception:
+                quick = {"checked": False}
+            st.session_state[fda_key] = quick
+        quick = st.session_state[fda_key]
+        if quick.get("checked"):
+            flags = []
+            if quick.get("recall"):
+                flags.append("🛑 **FDA recall is active** for this medicine — check your lot number with the pharmacy.")
+            if quick.get("shortage"):
+                flags.append("📉 **FDA lists this medicine as in shortage** — your pharmacy may suggest alternatives.")
+            if quick.get("boxed"):
+                flags.append("⬛ **This medicine carries an FDA boxed warning** — a good one to discuss with your doctor.")
+            if flags:
+                st.warning("\n\n".join(flags))
+            else:
+                st.caption("✓ FDA check: no active recalls or shortages for this medicine.")
+
+
+# --- Sidebar: quick accessibility controls only ----------------------------
+# Navigation lives exclusively in the large top buttons; a second nav in the
+# sidebar was redundant and confusing for senior users.
 
 def render_sidebar() -> None:
     lang = st.session_state.language
     personal_path = config.personal_db_path()
 
-    # Keep sidebar radio synced with any button-driven navigation
-    st.session_state.sidebar_nav_radio = st.session_state.active_section
+    # Kept for tests/back-compat: mirrors the active primary nav group.
+    st.session_state.sidebar_nav_radio = _primary_group(st.session_state.active_section)
 
     with st.sidebar:
         st.markdown("### 🛡️ MedSafe")
         st.caption(t("app_tagline", lang))
-
-        nav_labels = {
-            "overview": f"🏠  {t('nav_overview', lang)}",
-            "medicines": f"💊  {t('nav_medicines', lang)}",
-            "scan": f"📷  {t('nav_scan', lang)}",
-            "checker": f"🔍  {t('nav_checker', lang)}",
-            "schedule": f"⏰  {t('nav_schedule', lang)}",
-            "reports": f"📋  {t('nav_reports', lang)}",
-            "settings": f"⚙️  {t('nav_settings', lang)}",
-        }
-        st.radio(
-            t("nav_title", lang),
-            options=list(SECTION_KEYS),
-            format_func=lambda k: nav_labels[k],
-            key="sidebar_nav_radio",
-            on_change=_on_sidebar_radio_change,
-        )
 
         st.divider()
         st.markdown("#### 🎨 Appearance (Light / Dark)")
@@ -305,11 +412,8 @@ def render_sidebar() -> None:
         st.caption(ui_theme.THEME_DESCRIPTIONS[cur_theme])
 
         st.markdown("#### 🔤 Text Size")
-        size_labels = {
-            "standard": "Standard (18 px)",
-            "large": "Large (20 px)",
-            "xlarge": "Extra Large (22 px)",
-        }
+        # Labels come from translations and match ui_theme.FONT_SCALE_PX (19/21/24)
+        size_labels = {k: t(f"font_{k}", lang) for k in ("standard", "large", "xlarge")}
         size_keys = list(size_labels.keys())
         new_size = st.selectbox(
             "Text size",
@@ -360,23 +464,21 @@ def render_top_navigation_bar(lang: str) -> None:
     nav_items = [
         ("overview", f"🏠 {t('nav_overview', lang)}"),
         ("medicines", f"💊 {t('nav_medicines', lang)}"),
-        ("scan", f"📷 {t('nav_scan', lang)}"),
         ("checker", f"🔍 {t('nav_checker', lang)}"),
         ("schedule", f"⏰ {t('nav_schedule', lang)}"),
-        ("reports", f"📋 {t('nav_reports', lang)}"),
-        ("settings", f"⚙️ {t('nav_settings', lang)}"),
+        ("more", f"☰ {t('nav_more', lang)}"),
     ]
     cols = st.columns(len(nav_items))
-    active = st.session_state.active_section
+    active_group = _primary_group(st.session_state.active_section)
     for col, (sec_key, label) in zip(cols, nav_items):
-        is_current = active == sec_key
+        is_current = active_group == sec_key
         if col.button(
             label,
             key=f"topnav_{sec_key}",
             type="primary" if is_current else "secondary",
-            use_container_width=True,
+            width="stretch",
         ):
-            if not is_current:
+            if st.session_state.active_section != sec_key:
                 navigate_to(sec_key)
                 st.rerun()
 
@@ -387,25 +489,12 @@ def render_overview(db_path: Path, lang: str, is_demo: bool) -> None:
     st.header(t("overview_heading", lang))
     st.write(t("overview_subtitle", lang))
 
-    # Onboarding & Demo Walkthrough
-    with st.expander(f"ℹ️ {t('onboarding_title', lang)}", expanded=st.session_state.show_onboarding):
-        for step_key in (
-            "onboarding_step_1",
-            "onboarding_step_2",
-            "onboarding_step_3",
-            "onboarding_step_4",
-            "onboarding_step_5",
-        ):
-            st.markdown(f"- {t(step_key, lang)}")
-        if is_demo:
-            st.info(
-                "**Congressional App Challenge Quick Demo Walkthrough:**\n"
-                "1. Inspect the 4 sample entries in **My Medicines** (3 confirmed prescriptions + 1 unconfirmed herbal supplement).\n"
-                "2. Open **Scan a Bottle** and test local OCR on a **DEMO SAMPLE LABEL** with automatic PII redaction.\n"
-                "3. Open **Safety Checker**, pick **Ibuprofen 200 mg (Advil)** as a proposed OTC pain reliever, confirm its identity, and run the deterministic lookup against **Lisinopril + Metformin**.\n"
-                "4. Switch the language selector in the sidebar to **Español**, **हिन्दी**, **中文**, **Tagalog**, **Tiếng Việt**, or **Français** to see the localized plain-language explanation alongside the original English source record.\n"
-                "5. Open **Daily Schedule** and **Caregiver & Reports** to review the timeline and downloadable pharmacist summary."
-            )
+    # All how-it-works and walkthrough content lives under More -> Help;
+    # Home offers it as a single quiet link so the screen stays task-focused.
+    if st.button(f"📖 {t('open_full_guide', lang)}", key="overview_open_help"):
+        st.session_state.show_onboarding = False
+        navigate_to("help")
+        st.rerun()
 
     all_meds = medications.list_medications(db_path)
     active_meds = [m for m in all_meds if m.active]
@@ -421,7 +510,8 @@ def render_overview(db_path: Path, lang: str, is_demo: bool) -> None:
     taken_today = sum(1 for s in today_sched if s.status == "taken")
 
     # Summary Stat Cards (never a safety score or percentage!)
-    c1, c2, c3, c4, c5 = st.columns(5)
+    # Dataset size/status lives in Settings -> System & Service Status.
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         ui_theme.render_stat_card(
             len(active_meds),
@@ -447,30 +537,22 @@ def render_overview(db_path: Path, lang: str, is_demo: bool) -> None:
             t("stat_today_schedule", lang),
             "Marked taken today" if today_sched else "No reminder times set",
         )
-    with c5:
-        ds = check_report.dataset_status
-        ui_theme.render_stat_card(
-            ds.total_records if ds.available else "Unavailable",
-            t("stat_dataset_records", lang),
-            "Starter dataset (incomplete coverage)" if ds.only_demo_data else ds.label[:38],
-        )
-
     st.markdown(f"### {t('quick_actions_title', lang)}")
     qa1, qa2, qa3, qa4, qa5 = st.columns(5)
-    if qa1.button(f"➕ {t('btn_add_medicine', lang)}", key="qa_add_med", type="primary", use_container_width=True):
+    if qa1.button(f"➕ {t('btn_add_medicine', lang)}", key="qa_add_med", type="primary", width="stretch"):
         st.session_state.expand_add_med = True
         navigate_to("medicines")
         st.rerun()
-    if qa2.button(f"📷 {t('btn_scan_bottle', lang)}", key="qa_scan", use_container_width=True):
+    if qa2.button(f"📷 {t('btn_scan_bottle', lang)}", key="qa_scan", width="stretch"):
         navigate_to("scan")
         st.rerun()
-    if qa3.button(f"🔍 {t('btn_check_interaction', lang)}", key="qa_check", use_container_width=True):
+    if qa3.button(f"🔍 {t('btn_check_interaction', lang)}", key="qa_check", width="stretch"):
         navigate_to("checker")
         st.rerun()
-    if qa4.button(f"⏰ {t('btn_review_schedule', lang)}", key="qa_sched", use_container_width=True):
+    if qa4.button(f"⏰ {t('btn_review_schedule', lang)}", key="qa_sched", width="stretch"):
         navigate_to("schedule")
         st.rerun()
-    if qa5.button(f"📋 {t('btn_prepare_summary', lang)}", key="qa_rep", use_container_width=True):
+    if qa5.button(f"📋 {t('btn_prepare_summary', lang)}", key="qa_rep", width="stretch"):
         navigate_to("reports")
         st.rerun()
 
@@ -526,25 +608,12 @@ def render_overview(db_path: Path, lang: str, is_demo: bool) -> None:
                 st.rerun()
 
     with col_right:
-        with st.container(border=True):
-            st.markdown("#### 🗄️ Interaction database status & limitations")
-            ds = check_report.dataset_status
-            if not ds.available:
-                st.error(f"Dataset unavailable: {ds.problem}")
-            else:
-                for d in ds.datasets:
-                    badge = "[STARTER DEMO DATASET]" if d.is_demo else "[IMPORTED DATASET]"
-                    st.markdown(
-                        f"**{badge} {html.escape(d.name)}** (Version: `{html.escape(d.version or 'n/a')}`, "
-                        f"Records: **{d.record_count}**, Imported: `{html.escape(d.imported_at[:10])}`)"
-                    )
-                    if d.notes:
-                        st.caption(d.notes)
-                st.warning(
-                    "Coverage limitation: Having no matching interaction record in the loaded "
-                    "dataset never proves that two medicines are safe to take together. Always "
-                    "confirm with a pharmacist or prescriber."
-                )
+        # Dataset status & limitation details live in Settings -> System &
+        # Service Status; Overview stays task-focused. A one-line error shows
+        # only if the dataset is actually broken.
+        ds = check_report.dataset_status
+        if not ds.available:
+            st.error(f"Interaction dataset unavailable: {ds.problem} — see Settings for details.")
 
         history = interactions.list_history(db_path, limit=4)
         with st.container(border=True):
@@ -569,6 +638,9 @@ def render_overview(db_path: Path, lang: str, is_demo: bool) -> None:
 def render_my_medicines(db_path: Path, lang: str) -> None:
     st.header(t("meds_heading", lang))
     st.write(t("meds_subtitle", lang))
+    if st.button(f"📷 {t('nav_scan', lang)}", key="meds_open_scan", type="primary"):
+        navigate_to("scan")
+        st.rerun()
     st.info(t("coverage_note_categories", lang))
 
     all_meds = medications.list_medications(db_path)
@@ -604,7 +676,7 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
             (qf4, "💊 Omeprazole 20 mg", "Omeprazole 20 mg"),
         ]
         for qcol, qlabel, qval in quick_examples:
-            if qcol.button(qlabel, key=f"qf_add_{qval}", use_container_width=True):
+            if qcol.button(qlabel, key=f"qf_add_{qval}", width="stretch"):
                 st.session_state["med_add_query_input"] = qval
                 res_norm = drug_data.resolve_drug_candidates(qval)
                 st.session_state["add_med_norm"] = res_norm
@@ -620,7 +692,7 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
             placeholder="e.g. Lisinopril 10 mg, Advil PM, Synthroid, or Warfarin 5 mg",
             key="med_add_query_input",
         )
-        if col_btn.button("🔎 Look up identity", key="btn_lookup_add_med", type="primary", use_container_width=True):
+        if col_btn.button("🔎 Look up identity", key="btn_lookup_add_med", type="primary", width="stretch"):
             if not lookup_input.strip():
                 st.error("Please type a medicine name in the box first (for example: 'Lisinopril 10 mg').")
             else:
@@ -702,96 +774,109 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
             if k_init not in st.session_state:
                 st.session_state[k_init] = v_init
 
-        st.markdown("**Step 2:** Review or fill in the medication details below and click **Save medicine to my list**.")
+        # Instant safety preview against the current list, before saving
+        preview_ings = [
+            p.strip() for p in (st.session_state.get("f_ings_in") or "").split("+") if p.strip()
+        ]
+        if preview_ings:
+            render_safety_preview(
+                db_path,
+                lang,
+                (st.session_state.get("f_disp_in") or "This medicine").strip() or "This medicine",
+                preview_ings,
+            )
+
+        st.markdown("**Step 2:** Check these details match your bottle, then click **Save medicine to my list**.")
         with st.form("add_medication_form", clear_on_submit=False):
-            fc1, fc2, fc3 = st.columns(3)
+            # Essentials only - everything else auto-fills from Step 1 and
+            # lives under "More details" so seniors see at most 5 fields.
+            fc1, fc2 = st.columns(2)
             f_display = fc1.text_input(
-                "Display name *",
+                "Medicine name *",
                 placeholder="e.g. Lisinopril, Advil, or Warfarin",
                 key="f_disp_in",
             )
-            f_generic = fc2.text_input(
-                "Generic name",
-                placeholder="e.g. lisinopril",
-                key="f_gen_in",
-            )
-            f_brand = fc3.text_input(
-                "Brand name (optional)",
-                placeholder="e.g. Prinivil, Zestril",
-                key="f_brand_in",
-            )
-
-            fc4, fc5, fc6 = st.columns(3)
-            f_ings = fc4.text_input(
-                "Active ingredient(s) (separate multiple with '+')",
-                placeholder="e.g. lisinopril (or hydrocodone + acetaminophen)",
-                help="Required to confirm identity for interaction checking.",
-                key="f_ings_in",
-            )
-            f_strength = fc5.text_input(
-                "Strength",
-                placeholder="e.g. 10 mg, 500 mg, 20 mEq",
+            f_strength = fc2.text_input(
+                "Strength (from the label)",
+                placeholder="e.g. 10 mg",
                 key="f_str_in",
             )
-            f_form = fc6.text_input(
-                "Dosage form",
-                placeholder="e.g. Oral Tablet, Capsule",
-                key="f_form_in",
+            f_instructions = st.text_input(
+                "Directions from the label",
+                placeholder="e.g. Take 1 tablet by mouth every morning with food",
+                key="f_instr_in",
             )
-
-            fc7, fc8, fc9 = st.columns(3)
+            sc1, sc2 = st.columns(2)
+            f_sched = sc1.text_input(
+                "Reminder time(s) (optional)",
+                placeholder="e.g. 8:00 AM, 6:00 PM",
+                key="f_sched_in",
+            )
             cat_options = list(medications.VALID_CATEGORIES)
-            f_cat = fc7.selectbox(
-                "Category",
+            f_cat = sc2.selectbox(
+                "Type of medicine",
                 options=cat_options,
                 format_func=lambda c: category_label(c, lang),
                 key="f_cat_in",
             )
-            f_route = fc8.text_input(
-                "Route",
-                placeholder="e.g. Oral, Topical, Inhaled",
-                key="f_route_in",
-            )
-            f_rxcui = fc9.text_input(
-                "Standardized RxNorm ID (RxCUI, optional)",
-                placeholder="e.g. 29046",
-                key="f_rxcui_in",
-            )
 
-            f_instructions = st.text_input(
-                "Prescribed / label directions (never modified by MedSafe)",
-                placeholder="e.g. Take 1 tablet by mouth every morning with food",
-                key="f_instr_in",
-            )
-            sc1, sc2, sc3 = st.columns(3)
-            f_sched = sc1.text_input(
-                "Daily reminder time(s) (optional, comma-separated)",
-                placeholder="e.g. 8:00 AM, 6:00 PM",
-                key="f_sched_in",
-            )
-            f_prescriber = sc2.text_input(
-                "Prescriber (optional)",
-                placeholder="e.g. Dr. Patel",
-                key="f_presc_in",
-            )
-            f_pharmacy = sc3.text_input(
-                "Pharmacy (optional)",
-                placeholder="e.g. Community Pharmacy",
-                key="f_pharm_in",
-            )
-            f_notes = st.text_area(
-                "Notes (optional)",
-                placeholder="e.g. Taking for blood pressure; started in May.",
-                height=68,
-                key="f_notes_in",
-            )
+            with st.expander("More details (usually filled in automatically)"):
+                fc3, fc4, fc5 = st.columns(3)
+                f_generic = fc3.text_input(
+                    "Generic name",
+                    placeholder="e.g. lisinopril",
+                    key="f_gen_in",
+                )
+                f_brand = fc4.text_input(
+                    "Brand name",
+                    placeholder="e.g. Prinivil, Zestril",
+                    key="f_brand_in",
+                )
+                f_form = fc5.text_input(
+                    "Dosage form",
+                    placeholder="e.g. Oral Tablet, Capsule",
+                    key="f_form_in",
+                )
+                fc6, fc7, fc8 = st.columns(3)
+                f_ings = fc6.text_input(
+                    "Active ingredient(s) ('+' separated)",
+                    placeholder="e.g. hydrocodone + acetaminophen",
+                    help="Used for interaction checking; filled in by the Step 1 lookup.",
+                    key="f_ings_in",
+                )
+                f_route = fc7.text_input(
+                    "Route",
+                    placeholder="e.g. Oral, Topical",
+                    key="f_route_in",
+                )
+                f_rxcui = fc8.text_input(
+                    "RxNorm ID (RxCUI)",
+                    placeholder="e.g. 29046",
+                    key="f_rxcui_in",
+                )
+                fc9, fc10 = st.columns(2)
+                f_prescriber = fc9.text_input(
+                    "Prescriber",
+                    placeholder="e.g. Dr. Patel",
+                    key="f_presc_in",
+                )
+                f_pharmacy = fc10.text_input(
+                    "Pharmacy",
+                    placeholder="e.g. Community Pharmacy",
+                    key="f_pharm_in",
+                )
+                f_notes = st.text_area(
+                    "Notes",
+                    placeholder="e.g. Taking for blood pressure; started in May.",
+                    height=68,
+                    key="f_notes_in",
+                )
 
             confirm_check = st.checkbox(
-                "I have reviewed the active ingredient(s), strength, and dosage form above "
-                "and confirm they match my medication.",
+                "This matches the name and strength printed on my bottle.",
                 key="f_confirm_in",
             )
-            submitted = st.form_submit_button("✓ Save medicine to my list", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("✓ Save medicine to my list", type="primary", width="stretch")
             if submitted:
                 effective_display = f_display.strip() or lookup_input.strip()
                 if not effective_display:
@@ -897,31 +982,32 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
 
         # 1. Confirm identity quick action if not yet confirmed
         if med.identity_status != "confirmed":
-            if b1.button("✓ Confirm identity", key=f"btn_conf_{med.id}", type="primary", use_container_width=True):
+            if b1.button("✓ Confirm identity", key=f"btn_conf_{med.id}", type="primary", width="stretch"):
                 st.session_state[f"confirming_{med.id}"] = not st.session_state.get(f"confirming_{med.id}", False)
                 st.rerun()
         else:
             b1.caption(f"✓ Confirmed ({med.identity_source or 'verified'})")
 
         # 2. Edit toggle
-        if b2.button("✏️ View / Edit details", key=f"btn_edit_{med.id}", use_container_width=True):
+        if b2.button("✏️ View / Edit details", key=f"btn_edit_{med.id}", width="stretch"):
             st.session_state[f"editing_{med.id}"] = not st.session_state.get(f"editing_{med.id}", False)
             st.rerun()
 
+
         # 3. Active / Inactive toggle
         if med.active:
-            if b3.button("⏸️ Mark inactive", key=f"btn_deact_{med.id}", use_container_width=True):
+            if b3.button("⏸️ Mark inactive", key=f"btn_deact_{med.id}", width="stretch"):
                 medications.set_medication_active(db_path, med.id, False)
                 set_flash(f"Marked **{med.display_name}** as inactive (paused).")
                 st.rerun()
         else:
-            if b3.button("▶️ Reactivate", key=f"btn_react_{med.id}", use_container_width=True):
+            if b3.button("▶️ Reactivate", key=f"btn_react_{med.id}", width="stretch"):
                 medications.set_medication_active(db_path, med.id, True)
                 set_flash(f"Reactivated **{med.display_name}**.")
                 st.rerun()
 
         # 4. Two-step Delete confirmation
-        if b4.button("🗑️ Remove", key=f"btn_del_ask_{med.id}", use_container_width=True):
+        if b4.button("🗑️ Remove", key=f"btn_del_ask_{med.id}", width="stretch"):
             st.session_state[f"confirm_del_{med.id}"] = True
             st.rerun()
 
@@ -931,12 +1017,12 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
                     f"Are you sure you want to permanently remove **{med.display_name}** from your list?"
                 )
                 dc1, dc2 = st.columns(2)
-                if dc1.button("Yes, permanently remove", key=f"btn_del_yes_{med.id}", type="primary", use_container_width=True):
+                if dc1.button("Yes, permanently remove", key=f"btn_del_yes_{med.id}", type="primary", width="stretch"):
                     medications.delete_medication(db_path, med.id)
                     st.session_state.pop(f"confirm_del_{med.id}", None)
                     set_flash(f"Removed **{med.display_name}** from your medication list.")
                     st.rerun()
-                if dc2.button("Cancel", key=f"btn_del_no_{med.id}", use_container_width=True):
+                if dc2.button("Cancel", key=f"btn_del_no_{med.id}", width="stretch"):
                     st.session_state.pop(f"confirm_del_{med.id}", None)
                     st.rerun()
 
@@ -974,7 +1060,7 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
                     key=f"conf_str_in_{med.id}",
                 )
                 cc1, cc2 = st.columns(2)
-                if cc1.button("✓ Save confirmed identity", key=f"conf_save_{med.id}", type="primary", use_container_width=True):
+                if cc1.button("✓ Save confirmed identity", key=f"conf_save_{med.id}", type="primary", width="stretch"):
                     parts = [p.strip() for p in conf_ings.split("+") if p.strip()]
                     if not parts:
                         st.error("Please enter at least one active ingredient to confirm.")
@@ -990,7 +1076,7 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
                         st.session_state.pop(f"confirming_{med.id}", None)
                         set_flash(f"✓ Confirmed identity for **{med.display_name}** (`{' + '.join(parts)}`).")
                         st.rerun()
-                if cc2.button("Close", key=f"conf_cancel_{med.id}", use_container_width=True):
+                if cc2.button("Close", key=f"conf_cancel_{med.id}", width="stretch"):
                     st.session_state.pop(f"confirming_{med.id}", None)
                     st.rerun()
 
@@ -1055,8 +1141,8 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
                     )
 
                     sc_save, sc_close = st.columns(2)
-                    save_clicked = sc_save.form_submit_button("✓ Save changes", type="primary", use_container_width=True)
-                    close_clicked = sc_close.form_submit_button("Close without saving", use_container_width=True)
+                    save_clicked = sc_save.form_submit_button("✓ Save changes", type="primary", width="stretch")
+                    close_clicked = sc_close.form_submit_button("Close without saving", width="stretch")
                     if save_clicked:
                         ing_list = [p.strip() for p in e_ings.split("+") if p.strip()]
                         sched_list = [s.strip() for s in e_sched.split(",") if s.strip()]
@@ -1085,118 +1171,77 @@ def render_my_medicines(db_path: Path, lang: str) -> None:
                         st.session_state.pop(f"editing_{med.id}", None)
                         st.rerun()
 
+    # Common change history for ALL medicines, at the very bottom of the page.
+    all_events = medications.list_medication_events(db_path, None, limit=40)
+    if all_events:
+        st.markdown("---")
+        with st.expander(f"📜 Change history — all medicines ({len(all_events)})"):
+            event_words = {
+                "added": "Added",
+                "updated": "Details updated",
+                "paused": "Paused",
+                "resumed": "Resumed",
+                "identity_confirmed": "Identity confirmed",
+                "removed": "Removed",
+            }
+            for ev in all_events:
+                when = (ev.get("event_time") or "")[:16].replace("T", " ")
+                word = event_words.get(ev.get("event_type"), ev.get("event_type", ""))
+                detail = ev.get("detail") or ""
+                st.markdown(f"- `{when}` — **{word}**" + (f": {html.escape(detail)}" if detail else ""))
+
 
 # --- Section 3: Scan a Bottle (OCR + Mandatory Human Review) ---------------
 
 def render_scan_bottle(db_path: Path, lang: str) -> None:
     st.header(t("scan_heading", lang))
     st.write(t("scan_subtitle", lang))
+    if st.button(f"← {t('nav_medicines', lang)}", key="scan_back_meds"):
+        navigate_to("medicines")
+        st.rerun()
 
     ocr_status = ocr_service.detect_tesseract()
-    if ocr_status.available:
-        st.success(f"✓ Local OCR engine ready: {ocr_status.message}")
-    else:
+    if not ocr_status.available:
         st.warning(
             f"⚠️ {ocr_status.message}\n\n"
-            "You can still explore the built-in **DEMO SAMPLE LABELS** below or enter "
-            "medication details manually."
+            "Scanning is unavailable, but you can type the medicine name in "
+            "**My Medicines** instead."
         )
 
-    source_mode = st.radio(
-        "Choose an image source:",
-        options=["sample", "upload", "camera"],
-        format_func=lambda m: {
-            "sample": "🧪 Try a built-in DEMO SAMPLE LABEL (no camera needed)",
-            "upload": "📁 Upload a photo of a pill bottle label (.png, .jpg)",
-            "camera": "📷 Capture a photo with your device camera",
-        }[m],
-        horizontal=True,
-    )
-
+    tab_cam, tab_upload = st.tabs(["📷 Take a photo", "📁 Upload a photo"])
     chosen_image = None
-    sample_spec = None
-    spec_idx = 0
-
-    if source_mode == "sample":
-        sample_paths = ocr_service.ensure_sample_labels()
-        spec_idx = st.selectbox(
-            "Select a demonstration label:",
-            options=list(range(len(ocr_service.SAMPLE_LABELS))),
-            format_func=lambda i: ocr_service.SAMPLE_LABELS[i]["title"],
+    with tab_cam:
+        cam_photo = st.camera_input(
+            "Hold the label flat toward the camera, in good light (avoid bright lights behind the bottle)"
         )
-        sample_spec = ocr_service.SAMPLE_LABELS[spec_idx]
-        chosen_image = sample_paths[spec_idx]
-    elif source_mode == "upload":
+        if cam_photo is not None:
+            chosen_image = cam_photo.getvalue()
+    with tab_upload:
         uploaded = st.file_uploader(
             "Upload a clear photo of the prescription or OTC label",
             type=["png", "jpg", "jpeg"],
         )
         if uploaded is not None:
             chosen_image = uploaded.getvalue()
-    else:
-        cam_photo = st.camera_input("Point the camera at the medication label in good lighting")
-        if cam_photo is not None:
-            chosen_image = cam_photo.getvalue()
 
     if chosen_image is None:
-        st.info("Select a sample label, upload a photo, or take a picture above to start the review step.")
         return
 
-    with st.spinner("Running pre-scan quality diagnostics and multi-pass OCR..."):
+    with st.spinner("Reading the label..."):
         ocr_res, processed_img, _ = ocr_service.scan_label_image(chosen_image)
-        if not ocr_status.available and sample_spec is not None:
-            ocr_res = ocr_service.parse_label_text(
-                sample_spec["fallback_text"],
-                engine_used="demo_sample_text_fallback",
-                image_quality=ocr_res.image_quality,
-            )
-
-    # Pre-Scan Image Quality Diagnostics Banner
-    iq = ocr_res.image_quality
-    if iq is not None:
-        if not iq.ok:
-            with st.container(border=True):
-                st.warning(
-                    "**📷 Helpful Photo Quality Coaching (No Worries!)**\n\n"
-                    + "\n".join(f"- {tip}" for tip in iq.coaching_tips)
-                )
-        else:
-            st.caption(
-                f"✓ Photo quality check passed (Brightness: {iq.mean_brightness:.0f}/255 · "
-                f"Contrast: {iq.contrast_std:.0f} · Edge clarity: {iq.edge_sharpness:.0f})."
-            )
-
-    img_col1, img_col2, img_col3 = st.columns(3)
-    with img_col1:
-        st.markdown("##### 1. Original label image")
-        st.image(chosen_image, use_container_width=True)
-    with img_col2:
-        st.markdown("##### 2. Multi-pass highlight-box removal")
-        st.image(processed_img, use_container_width=True)
-    with img_col3:
-        st.markdown("##### 3. 🔍 Zoomed Label Loupe (Large Print)")
-        loupe_band = st.slider(
-            "Slide to move magnifier up or down the bottle label",
-            min_value=10,
-            max_value=80,
-            value=42,
-            step=5,
-            key=f"loupe_slider_{source_mode}_{spec_idx}",
-        )
-        pw, ph = processed_img.size
-        y_top = max(0, int(ph * (loupe_band - 22) / 100.0))
-        y_bot = min(ph, int(ph * (loupe_band + 22) / 100.0))
-        x_left = max(0, int(pw * 0.04))
-        x_right = min(pw, int(pw * 0.96))
-        loupe_crop = processed_img.crop((x_left, y_top, max(x_left + 10, x_right), max(y_top + 10, y_bot)))
-        st.image(loupe_crop, use_container_width=True)
 
     st.markdown("---")
     st.subheader(t("ocr_review_heading", lang))
     st.warning(f"**[▲] {t('ocr_uncertainty_banner', lang)}**")
 
-    for note in ocr_res.uncertainty_notes:
-        st.info(f"• {note}")
+    # One compact notes box instead of a stack of banners
+    iq = ocr_res.image_quality
+    notes: list[str] = []
+    if iq is not None and not iq.ok:
+        notes.extend(iq.coaching_tips)
+    notes.extend(ocr_res.uncertainty_notes)
+    if notes:
+        st.info("\n".join(f"- {n}" for n in notes))
 
     st.text_area(
         "Extracted label text (personal identifiers automatically redacted)",
@@ -1223,7 +1268,7 @@ def render_scan_bottle(db_path: Path, lang: str) -> None:
                 if idx >= 0
                 else "None of these — I will enter or select the medication manually below"
             ),
-            key=f"ocr_candidate_radio_{source_mode}_{spec_idx}_{hash(ocr_res.redacted_text)}",
+            key=f"ocr_candidate_radio_photo_{hash(ocr_res.redacted_text)}",
         )
         if cand_idx >= 0 and cand_idx < len(ocr_res.candidates):
             selected_cand = ocr_res.candidates[cand_idx]
@@ -1240,7 +1285,7 @@ def render_scan_bottle(db_path: Path, lang: str) -> None:
         prefix_filter = qp1.text_input(
             "First 2–3 letters on bottle",
             placeholder="e.g. Amo, Lis, Met, Hyd...",
-            key=f"ocr_quick_prefix_{source_mode}_{spec_idx}",
+            key=f"ocr_quick_prefix_photo",
         )
         filtered_catalog = drug_data.search_catalog_by_prefix(prefix_filter)
         picker_options = [-1] + list(range(len(filtered_catalog)))
@@ -1257,10 +1302,52 @@ def render_scan_bottle(db_path: Path, lang: str) -> None:
                     + ")"
                 )
             ),
-            key=f"ocr_quick_select_{source_mode}_{spec_idx}_{prefix_filter.strip().lower()}",
+            key=f"ocr_quick_select_photo_{prefix_filter.strip().lower()}",
         )
         if picked_catalog_idx >= 0 and picked_catalog_idx < len(filtered_catalog):
             selected_cand = filtered_catalog[picked_catalog_idx]
+
+    # Duplicate guard: if the selected candidate matches a medicine already on
+    # the list, say so plainly before the senior saves a second copy.
+    if selected_cand:
+        existing_meds = medications.list_medications(db_path)
+        cand_ings = {i.name.strip().lower() for i in (selected_cand.ingredients or [])}
+        cand_names = {
+            n.strip().lower()
+            for n in (selected_cand.display_name, selected_cand.generic_name, selected_cand.brand_name)
+            if n
+        }
+        dup = None
+        for m in existing_meds:
+            m_ings = {i.name.strip().lower() for i in m.ingredients}
+            m_names = {
+                n.strip().lower()
+                for n in (m.display_name, m.generic_name, m.brand_name)
+                if n
+            }
+            if (cand_ings and cand_ings == m_ings) or (cand_names & m_names):
+                dup = m
+                break
+        if dup is not None:
+            if dup.active:
+                st.warning(
+                    f"⚠️ **You already have this medicine.** **{html.escape(dup.display_name)}** "
+                    f"({html.escape(dup.strength or 'strength not set')}) is on your list and you are "
+                    f"**actively taking it**. You usually do not need to add it again — "
+                    f"check **My Medicines** if the strength or directions changed."
+                )
+            else:
+                st.info(
+                    f"ℹ️ **{html.escape(dup.display_name)}** is already on your list but is currently "
+                    f"**paused**. Instead of adding it again, you can reactivate it in **My Medicines**."
+                )
+        if dup is None and selected_cand.ingredients:
+            render_safety_preview(
+                db_path,
+                lang,
+                selected_cand.display_name,
+                [i.name for i in selected_cand.ingredients],
+            )
 
     # FDA Look-Alike / Sound-Alike (LASA) Confusion Guard with Tall-Man Lettering
     active_lasa = (
@@ -1290,7 +1377,7 @@ def render_scan_bottle(db_path: Path, lang: str) -> None:
     prop_cat = selected_cand.category if selected_cand else "prescription"
 
     # Key the form by source, candidate & quick-picker so switching selections immediately updates all text inputs!
-    form_sig = f"{source_mode}_{spec_idx}_{cand_idx}_{picked_catalog_idx}_{hash(ocr_res.redacted_text)}"
+    form_sig = f"photo_{cand_idx}_{picked_catalog_idx}_{hash(ocr_res.redacted_text)}"
     with st.form(f"ocr_review_confirm_form_{form_sig}"):
         rc1, rc2, rc3 = st.columns(3)
         r_disp = rc1.text_input(
@@ -1354,11 +1441,11 @@ def render_scan_bottle(db_path: Path, lang: str) -> None:
         save_confirmed = sb1.form_submit_button(
             "✓ Confirm identity & save to My Medicines",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
         save_unconfirmed = sb2.form_submit_button(
             "Save as 'Needs confirmation' (review later)",
-            use_container_width=True,
+            width="stretch",
         )
 
         if save_confirmed or save_unconfirmed:
@@ -1419,8 +1506,7 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
             st.rerun()
         return
 
-    with st.container(border=True):
-        st.markdown("#### Your active medication list included in this check")
+    with st.expander(f"Your {len(active_meds)} medicines included in this check", expanded=False):
         for m in active_meds:
             ings = " + ".join(i.name for i in m.ingredients) or "Unidentified"
             badge = identity_status_label(m.identity_status, lang)
@@ -1456,7 +1542,7 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
                 (dq4, "🧪 Acetaminophen 500 mg (Tylenol)", "Acetaminophen 500 mg"),
             ]
             for dcol, dlabel, dval in demo_picks:
-                if dcol.button(dlabel, key=f"dq_btn_{dval}", use_container_width=True):
+                if dcol.button(dlabel, key=f"dq_btn_{dval}", width="stretch"):
                     st.session_state["checker_prop_input"] = dval
                     st.session_state["prop_query"] = dval
                     st.session_state["prop_norm"] = drug_data.resolve_drug_candidates(dval)
@@ -1479,7 +1565,7 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
                 "🔎 Look up proposed medicine",
                 key="btn_lookup_prop",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
             )
             if lookup_clicked or (
                 prop_q.strip() and prop_q.strip() != st.session_state.get("last_resolved_prop_q")
@@ -1551,7 +1637,7 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
         f"🔍 {t('checker_run_btn', lang)} & log to check history",
         key="btn_run_checker_main",
         type="primary",
-        use_container_width=True,
+        width="stretch",
     ):
         interactions.save_history(db_path, report)
         hits_n = len(report.by_status(CheckStatus.MATCH_FOUND))
@@ -1588,7 +1674,7 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
             )
 
     # 3. Severity & Status Legend
-    with st.expander("📖 Severity & Result Status Legend (How to read these results)", expanded=False):
+    with st.expander("📖 How to read these results", expanded=False):
         st.markdown(
             f"- {ui_theme.status_badge_html(CheckStatus.MATCH_FOUND, lang)} — "
             "A matching interaction record exists in the loaded dataset.\n"
@@ -1605,32 +1691,79 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
             unsafe_allow_html=True,
         )
 
-    # 3.5 Interactive Polypharmacy Pairwise Interaction Matrix
+    # 3.5 Full pair-by-pair table (collapsed: detail for the curious, not the default)
     if len(active_meds) >= 2:
         with st.expander(
-            f"📊 Interactive Polypharmacy Interaction Matrix ({len(active_meds)} active medicines)",
-            expanded=True,
+            f"📊 See the full pair-by-pair table ({len(active_meds)} medicines)",
+            expanded=False,
         ):
             st.caption(
-                "Pairwise overview across your active medication list. "
-                "Look-Alike, Sound-Alike (LASA) medicines are shown with FDA/ISMP Tall Man Lettering."
+                "Every pairing of your medicines at a glance. Easily-confused "
+                "(look-alike/sound-alike) names are shown with capitalized letters."
             )
             ui_theme.render_polypharmacy_matrix(active_meds, report, language=lang)
 
     # 4. Pairwise Results
-    st.subheader(f"Pairwise Interaction Results ({len(report.results)} pair(s))")
+    # Senior-first results: anything needing attention gets its own card;
+    # all-clear pairs collapse into ONE friendly summary instead of a wall of
+    # repeated "no record" disclaimers.
+    duplicate_pairs = [
+        p for p in report.results
+        if p.status == CheckStatus.NO_MATCHING_RECORD and p.reason == "same_ingredients"
+    ]
+    match_pairs = [p for p in report.results if p.status == CheckStatus.MATCH_FOUND]
+    unchecked_pairs = [
+        p for p in report.results
+        if p.status not in (CheckStatus.MATCH_FOUND, CheckStatus.NO_MATCHING_RECORD)
+    ]
+    clear_pairs = [
+        p for p in report.results
+        if p.status == CheckStatus.NO_MATCHING_RECORD and p.reason != "same_ingredients"
+    ]
+
+    # --- Senior summary: one glance, plain words, big icons -----------------
+    _sev_icon = {"major": "🔴", "moderate": "🟠", "minor": "🟡", "unspecified": "⚪"}
+    glance_rows: list[str] = []
+    for p in match_pairs:
+        rec0 = p.records[0] if p.records else None
+        lvl = rec0.severity_level if rec0 else "unspecified"
+        glance_rows.append(
+            f"{_sev_icon.get(lvl, '⚪')} **{html.escape(p.med_a.display_name)} + "
+            f"{html.escape(p.med_b.display_name)}** — {html.escape(severity_label(lvl, lang))}"
+        )
+    for p in duplicate_pairs:
+        glance_rows.append(
+            f"⚠️ **{html.escape(p.med_a.display_name)} + {html.escape(p.med_b.display_name)}** — "
+            f"{t('glance_same_med', lang)}"
+        )
+    for f_row in report.food_findings:
+        glance_rows.append(
+            f"🍊 **{html.escape(f_row.food.title())} + {html.escape(f_row.medicine)}** — "
+            f"{html.escape(severity_label(f_row.severity_level, lang))}"
+        )
+    if unchecked_pairs:
+        glance_rows.append(f"❓ {len(unchecked_pairs)} — {t('glance_unchecked', lang)}")
+
+    st.subheader(f"👀 {t('glance_title', lang)}")
+    with st.container(border=True):
+        if not glance_rows:
+            st.markdown(f"## 🟢 {t('glance_all_clear', lang)}")
+        else:
+            for row in glance_rows:
+                st.markdown(f"### {row}")
+            if clear_pairs:
+                st.markdown(f"🟢 {t('glance_clear_rest', lang)} ({len(clear_pairs)})")
+            st.caption(t("severity_legend", lang))
+            st.caption(t("glance_details_below", lang))
+
+    st.subheader("Results")
     if not report.results:
         st.info("At least two medicines are needed to compare a pair.")
 
-    for idx, pair in enumerate(report.results):
+    attention_pairs = match_pairs + duplicate_pairs + unchecked_pairs
+    for idx, pair in enumerate(attention_pairs):
         border_cls = ui_theme.pair_card_border_class(pair)
         status_html = ui_theme.status_badge_html(pair.status, lang)
-        ing_pairs_str = (
-            ", ".join(f"{a} + {b}" for a, b in pair.ingredient_pairs)
-            if pair.ingredient_pairs
-            else "Active ingredients not confirmed for both medicines"
-        )
-
         rec = pair.records[0] if pair.records else None
         sev_html = (
             ui_theme.severity_badge_html(rec.severity_level, rec.severity_raw, lang)
@@ -1638,8 +1771,7 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
             else ""
         )
 
-        st.markdown(
-            f"""
+        ui_theme.html_markdown(f"""
             <div class="ms-card {border_cls}">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
                     <div class="ms-card-title">
@@ -1647,13 +1779,8 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
                     </div>
                     <div>{status_html} {sev_html}</div>
                 </div>
-                <div class="ms-card-subtitle" style="margin-top:6px;font-size:0.92em;">
-                    <strong>Standardized ingredient pair compared:</strong> {html.escape(ing_pairs_str)}
-                </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """)
 
         if pair.status == CheckStatus.MATCH_FOUND and rec:
             with st.container(border=True):
@@ -1663,16 +1790,9 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
                     st.warning(f"**[▲] {t('action_caution_match', lang)}**")
 
                 exp_res = ai_explain.explain_structured(pair, language=lang)
-                src_badge = (
-                    t("badge_source_ai", lang)
-                    if exp_res.source == "ai"
-                    else t("badge_source_template", lang)
-                )
-                st.caption(f"Explanation source: **{src_badge}**")
-                st.markdown(f"**What the record says:** {html.escape(exp_res.explanation)}")
-                st.markdown(f"**Why it matters:** {html.escape(exp_res.why_it_matters)}")
-                st.markdown(f"**What to do next:** {html.escape(exp_res.what_to_do_next)}")
-                st.caption(f"**Limitations:** {exp_res.limitations}")
+                st.markdown(f"**{html.escape(exp_res.explanation)}**")
+                st.markdown(html.escape(exp_res.why_it_matters))
+                st.markdown(f"👉 {html.escape(exp_res.what_to_do_next)}")
 
                 if lang != "English":
                     with st.expander(f"🌐 {t('show_original_english', lang)}"):
@@ -1689,7 +1809,13 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
                     else:
                         st.caption("Audio synthesis is currently offline or unavailable.")
 
-                with st.expander("🔎 Source dataset provenance & supplementary FDA label text"):
+                with st.expander("ℹ️ More detail (for your pharmacist)"):
+                    src_badge = (
+                        t("badge_source_ai", lang)
+                        if exp_res.source == "ai"
+                        else t("badge_source_template", lang)
+                    )
+                    st.caption(f"Explanation written by: **{src_badge}** · Limitations: {exp_res.limitations}")
                     st.markdown(
                         f"- **Dataset name:** {rec.dataset_name} (Version: `{rec.dataset_version or 'n/a'}`)\n"
                         f"- **Source record ID:** `{rec.source_record_id or rec.record_id}`\n"
@@ -1722,35 +1848,47 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
                         else:
                             st.caption("No openFDA label excerpt was returned (or you are offline).")
 
-        elif pair.status == CheckStatus.NO_MATCHING_RECORD:
-            with st.container(border=True):
-                if pair.reason == "same_ingredients":
-                    st.warning(
-                        "Both medicines contain the exact same active ingredient(s). "
-                        "See the duplicate ingredient warning above."
-                    )
-                else:
-                    st.write(f"ℹ️ {t('no_record_explanation', lang)}")
-                    st.caption(
-                        f"Checked against: {report.dataset_status.label} "
-                        f"({report.dataset_status.total_records} loaded pairs). "
-                        "What remains unknown: Any interaction not included in this starter dataset, "
-                        "dose-specific effects, and patient-specific conditions."
-                    )
-
-        else:
+        elif pair.status == CheckStatus.NO_MATCHING_RECORD and pair.reason == "same_ingredients":
             with st.container(border=True):
                 st.warning(
-                    "This pair could not be checked because at least one medicine's active "
-                    "ingredient has not been confirmed (or the dataset is unavailable)."
+                    "⚠️ **These are the same medicine.** Both contain the exact same active "
+                    "ingredient(s) — taking both can accidentally double the dose. "
+                    "Consider removing one in **My Medicines**, or ask your pharmacist."
                 )
-                if st.button("Confirm medication identity in My Medicines →", key=f"pair_conf_nav_{idx}"):
+
+        elif pair.status != CheckStatus.MATCH_FOUND:
+            with st.container(border=True):
+                st.warning(
+                    "This pair could not be checked yet because at least one medicine's "
+                    "identity has not been confirmed."
+                )
+                if st.button("Confirm it in My Medicines →", key=f"pair_conf_nav_{idx}"):
                     navigate_to("medicines")
                     st.rerun()
 
+    # ONE friendly summary for everything that came back clean
+    if clear_pairs:
+        if not attention_pairs:
+            st.success(
+                f"✅ **Good news:** we checked **{len(clear_pairs)} pair(s)** of your medicines "
+                f"and found **no documented interactions**."
+            )
+        else:
+            st.success(
+                f"✅ The other **{len(clear_pairs)} pair(s)** of your medicines had "
+                f"**no documented interactions**."
+            )
+        with st.expander("See which pairs were checked"):
+            for p in clear_pairs:
+                st.markdown(f"- {html.escape(p.med_a.display_name)} + {html.escape(p.med_b.display_name)}")
+        st.caption(
+            f"Checked against {report.dataset_status.total_records:,} interaction records. "
+            "No record is not a guarantee of safety — when in doubt, ask your pharmacist."
+        )
+
     # 5. Food & Drink Cautions
     st.markdown("---")
-    st.subheader("🍊 Food & Drink Cautions from Loaded Dataset")
+    st.subheader("🍊 Food & drink to watch")
     if not report.food_findings:
         st.caption(
             "No food or drink interaction records matched in the loaded starter food dataset. "
@@ -1761,158 +1899,149 @@ def render_safety_checker(db_path: Path, lang: str, is_demo: bool) -> None:
             sev_b = ui_theme.severity_badge_html(f_row.severity_level, f_row.severity_raw, lang)
             with st.container(border=True):
                 st.markdown(
-                    f"**{html.escape(f_row.medicine)} (`{html.escape(f_row.ingredient)}`) + "
-                    f"{html.escape(f_row.food.title())}** &nbsp; {sev_b}",
-                    unsafe_allow_html=True,
+                    f"### {html.escape(f_row.food.title())} + {html.escape(f_row.medicine)}"
                 )
+                st.markdown(sev_b, unsafe_allow_html=True)
                 f_exp = ai_explain.explain_food_structured(f_row, language=lang)
                 st.write(f_exp.explanation)
                 st.write(f_exp.why_it_matters)
-                st.caption(
-                    f"{f_exp.what_to_do_next} · Source: {f_row.dataset_name} "
-                    f"(Record ID: `{f_row.source_record_id or 'n/a'}`)"
-                )
+                st.markdown(f"👉 {html.escape(f_exp.what_to_do_next)}")
                 if st.button("🔊 Read food caution aloud", key=f"tts_food_{f_idx}"):
                     audio_bytes = synthesize_speech(f_exp.as_text(), lang)
                     if audio_bytes:
                         st.audio(audio_bytes, format="audio/mp3")
 
-    # 6. Multi-Endpoint openFDA Clinical Safety Profile (SPL, FAERS .exact, Recalls & Shortages)
+    # 6. Optional per-medicine FDA lookups, tucked away for the curious
     st.markdown("---")
-    st.subheader("🛡️ U.S. FDA openFDA Clinical Safety Profile (Labeling, FAERS, Recalls & Shortages)")
-    st.caption(
-        "Queries four official openFDA endpoints (`label.json`, `event.json` with `.exact` MedDRA phrase counting, "
-        "`enforcement.json` ongoing recalls, and `shortages.json`) using a token-bucket rate pacer and local SQLite cache."
-    )
-    profile_med_options = [m.generic_name or m.display_name for m in active_meds]
-    if proposed_med and proposed_med.display_name not in profile_med_options:
-        profile_med_options.insert(0, proposed_med.display_name)
+    fda_expander = st.expander("🛡️ Look up official FDA records for one of your medicines (optional)")
+    with fda_expander:
+        st.caption(
+            "Recalls, shortages, label warnings, and reported side effects, "
+            "straight from the U.S. FDA."
+        )
+        profile_med_options = [m.generic_name or m.display_name for m in active_meds]
+        if proposed_med and proposed_med.display_name not in profile_med_options:
+            profile_med_options.insert(0, proposed_med.display_name)
 
-    pf_col1, pf_col2 = st.columns([3, 2])
-    selected_fda_drug = pf_col1.selectbox(
-        "Select a medicine from your regimen to inspect official FDA records:",
-        options=profile_med_options,
-        format_func=lambda d: tall_man_lettering.get_tall_man_display_name(d) or d,
-        key="checker_fda_profile_select",
-    )
-    if pf_col2.button(
-        "🔎 Load 4-Endpoint openFDA Profile",
-        key="btn_load_openfda_profile",
-        type="primary",
-        use_container_width=True,
-    ):
-        skeleton_slot = st.empty()
-        with skeleton_slot.container():
-            ui_theme.render_skeleton_loader(
-                lines=4,
-                label=f"Querying openFDA Labeling, FAERS (.exact), Recalls & Shortages for {selected_fda_drug}...",
-            )
-        st.session_state["active_fda_profile"] = clinical_api.build_safety_profile(selected_fda_drug)
-        st.session_state["active_fda_profile_drug"] = selected_fda_drug
-        skeleton_slot.empty()
+        # Records load automatically when a medicine is picked (results are
+        # cached locally, so re-picking the same medicine is instant).
+        _FDA_PLACEHOLDER = "— choose a medicine —"
+        selected_fda_drug = st.selectbox(
+            "Which medicine would you like to look up?",
+            options=[_FDA_PLACEHOLDER] + profile_med_options,
+            format_func=lambda d: (
+                d if d == _FDA_PLACEHOLDER
+                else (tall_man_lettering.get_tall_man_display_name(d) or d)
+            ),
+            key="checker_fda_profile_select",
+        )
+        if (
+            selected_fda_drug != _FDA_PLACEHOLDER
+            and st.session_state.get("active_fda_profile_drug") != selected_fda_drug
+        ):
+            with st.spinner(f"Looking up official FDA records for {selected_fda_drug.title()}..."):
+                st.session_state["active_fda_profile"] = clinical_api.build_safety_profile(selected_fda_drug)
+                st.session_state["active_fda_profile_drug"] = selected_fda_drug
 
-    fda_prof: clinical_api.SafetyProfile | None = st.session_state.get("active_fda_profile")
-    if fda_prof and st.session_state.get("active_fda_profile_drug") == selected_fda_drug:
-        lasa_info = drug_data.get_lasa_warning(selected_fda_drug)
-        if lasa_info:
-            ui_theme.render_lasa_warning_card(lasa_info)
+        fda_prof: clinical_api.SafetyProfile | None = st.session_state.get("active_fda_profile")
+        if fda_prof and st.session_state.get("active_fda_profile_drug") == selected_fda_drug:
+            lasa_info = drug_data.get_lasa_warning(selected_fda_drug)
+            if lasa_info:
+                ui_theme.render_lasa_warning_card(lasa_info)
 
-        # 6A. Label Safety Sections (Boxed Warning, Contraindications, Section 7 Drug Interactions)
-        if fda_prof.label.ok and isinstance(fda_prof.label.data, dict) and fda_prof.label.data.get("found"):
-            lbl_data = fda_prof.label.data
-            if lbl_data.get("boxed_warning"):
-                ui_theme.render_nhs_warning_callout(
-                    f"FDA Boxed Warning for {selected_fda_drug.title()}",
-                    "This medication carries an official FDA Boxed Warning. Do not stop taking a prescribed medicine without speaking to your prescriber.",
-                    category="BOXED WARNING",
-                    severity="major",
-                    spl_section_title="Expand Official FDA Boxed Warning (SPL Text)",
-                    spl_text=lbl_data["boxed_warning"],
-                    source_label=f"openFDA SPL (Effective: {lbl_data.get('effective_time') or 'n/a'})",
-                )
-            if lbl_data.get("contraindications"):
-                ui_theme.render_nhs_warning_callout(
-                    f"Contraindications for {selected_fda_drug.title()}",
-                    "Situations where the FDA label states this medication should generally not be used.",
-                    category="CONTRAINDICATION",
-                    severity="major",
-                    spl_section_title="Expand Official FDA Contraindications (SPL Text)",
-                    spl_text=lbl_data["contraindications"],
-                    source_label="U.S. FDA openFDA Structured Product Labeling",
-                )
-            if lbl_data.get("drug_interactions") or lbl_data.get("warnings"):
-                ui_theme.render_nhs_warning_callout(
-                    f"FDA Section 7 Drug Interactions & Warnings ({selected_fda_drug.title()})",
-                    "Supplementary manufacturer label context. Review alongside the deterministic interaction report above.",
-                    category="FDA SPL SECTION 7",
-                    severity="info",
-                    spl_section_title="Expand FDA Label Drug Interactions & Warnings Excerpt",
-                    spl_text=lbl_data.get("drug_interactions") or lbl_data.get("warnings"),
-                    source_label="U.S. FDA openFDA Drug Labeling API",
-                )
-        elif not fda_prof.label.ok:
-            st.info(f"FDA Drug Labeling lookup status: `{fda_prof.label.error_code}`.")
-
-        # 6B. Ongoing FDA Recalls (enforcement.json)
-        if fda_prof.recalls.ok:
-            recalls_data = fda_prof.recalls.data or []
-            if recalls_data:
-                for r_item in recalls_data:
+            # 6A. Label Safety Sections (Boxed Warning, Contraindications, Section 7 Drug Interactions)
+            if fda_prof.label.ok and isinstance(fda_prof.label.data, dict) and fda_prof.label.data.get("found"):
+                lbl_data = fda_prof.label.data
+                if lbl_data.get("boxed_warning"):
                     ui_theme.render_nhs_warning_callout(
-                        f"Ongoing FDA Recall ({r_item.get('classification') or 'Enforcement'}) — {r_item.get('recalling_firm') or ''}",
-                        f"<strong>Reason:</strong> {html.escape(r_item.get('reason_for_recall') or 'See details')}<br/>"
-                        f"<strong>Initiated:</strong> <span class='ms-mono-code'>{html.escape(r_item.get('recall_initiation_date') or 'n/a')}</span>",
-                        category="ACTIVE RECALL",
+                        f"FDA Boxed Warning for {selected_fda_drug.title()}",
+                        "This medication carries an official FDA Boxed Warning. Do not stop taking a prescribed medicine without speaking to your prescriber.",
+                        category="BOXED WARNING",
                         severity="major",
-                        spl_section_title="Expand Product & Lot Code Details (Verify with Pharmacist)",
-                        spl_text=f"Product: {r_item.get('product_description') or 'n/a'} | Lot/Code Info: {r_item.get('code_info') or 'n/a'}",
-                        source_label="U.S. FDA openFDA Recall Enforcement Reports",
+                        spl_section_title="Expand Official FDA Boxed Warning (SPL Text)",
+                        spl_text=lbl_data["boxed_warning"],
+                        source_label=f"openFDA SPL (Effective: {lbl_data.get('effective_time') or 'n/a'})",
                     )
-            else:
-                st.caption("✓ No ongoing FDA recall enforcement records matched this generic name.")
-        else:
-            st.caption(f"Recall lookup status: `{fda_prof.recalls.error_code}`.")
+                if lbl_data.get("contraindications"):
+                    ui_theme.render_nhs_warning_callout(
+                        f"Contraindications for {selected_fda_drug.title()}",
+                        "Situations where the FDA label states this medication should generally not be used.",
+                        category="CONTRAINDICATION",
+                        severity="major",
+                        spl_section_title="Expand Official FDA Contraindications (SPL Text)",
+                        spl_text=lbl_data["contraindications"],
+                        source_label="U.S. FDA openFDA Structured Product Labeling",
+                    )
+                if lbl_data.get("drug_interactions") or lbl_data.get("warnings"):
+                    ui_theme.render_nhs_warning_callout(
+                        f"FDA Section 7 Drug Interactions & Warnings ({selected_fda_drug.title()})",
+                        "Supplementary manufacturer label context. Review alongside the deterministic interaction report above.",
+                        category="FDA SPL SECTION 7",
+                        severity="info",
+                        spl_section_title="Expand FDA Label Drug Interactions & Warnings Excerpt",
+                        spl_text=lbl_data.get("drug_interactions") or lbl_data.get("warnings"),
+                        source_label="U.S. FDA openFDA Drug Labeling API",
+                    )
+            elif not fda_prof.label.ok:
+                st.info(f"FDA Drug Labeling lookup status: `{fda_prof.label.error_code}`.")
 
-        # 6C. FDA Drug Shortages (shortages.json)
-        if fda_prof.shortages.ok:
-            shortages_data = fda_prof.shortages.data or []
-            if shortages_data:
-                s0 = shortages_data[0]
-                ui_theme.render_nhs_warning_callout(
-                    f"FDA Drug Shortage Registry Entry ({s0.get('status') or 'Reported'})",
-                    f"<strong>Availability:</strong> {html.escape(s0.get('availability') or 'See pharmacy')}<br/>"
-                    f"<strong>Dosage form:</strong> {html.escape(s0.get('dosage_form') or 'n/a')} &middot; "
-                    f"<strong>Updated:</strong> <span class='ms-mono-code'>{html.escape(s0.get('update_date') or 'n/a')}</span>",
-                    category="DRUG SHORTAGE",
-                    severity="moderate",
-                    spl_section_title="Expand Shortage Reason & Refill Guidance",
-                    spl_text=s0.get("shortage_reason") or "Contact your pharmacy ahead of time when requesting refills.",
-                    source_label="U.S. FDA openFDA Drug Shortages API",
+            # 6B. Ongoing FDA Recalls (enforcement.json)
+            if fda_prof.recalls.ok:
+                recalls_data = fda_prof.recalls.data or []
+                if recalls_data:
+                    for r_item in recalls_data:
+                        ui_theme.render_nhs_warning_callout(
+                            f"Ongoing FDA Recall ({r_item.get('classification') or 'Enforcement'}) — {r_item.get('recalling_firm') or ''}",
+                            f"<strong>Reason:</strong> {html.escape(r_item.get('reason_for_recall') or 'See details')}<br/>"
+                            f"<strong>Initiated:</strong> <span class='ms-mono-code'>{html.escape(r_item.get('recall_initiation_date') or 'n/a')}</span>",
+                            category="ACTIVE RECALL",
+                            severity="major",
+                            spl_section_title="Expand Product & Lot Code Details (Verify with Pharmacist)",
+                            spl_text=f"Product: {r_item.get('product_description') or 'n/a'} | Lot/Code Info: {r_item.get('code_info') or 'n/a'}",
+                            source_label="U.S. FDA openFDA Recall Enforcement Reports",
+                        )
+                else:
+                    st.caption("✓ No ongoing FDA recall enforcement records matched this generic name.")
+            else:
+                st.caption(f"Recall lookup status: `{fda_prof.recalls.error_code}`.")
+
+            # 6C. FDA Drug Shortages (shortages.json)
+            if fda_prof.shortages.ok:
+                shortages_data = fda_prof.shortages.data or []
+                if shortages_data:
+                    s0 = shortages_data[0]
+                    ui_theme.render_nhs_warning_callout(
+                        f"FDA Drug Shortage Registry Entry ({s0.get('status') or 'Reported'})",
+                        f"<strong>Availability:</strong> {html.escape(s0.get('availability') or 'See pharmacy')}<br/>"
+                        f"<strong>Dosage form:</strong> {html.escape(s0.get('dosage_form') or 'n/a')} &middot; "
+                        f"<strong>Updated:</strong> <span class='ms-mono-code'>{html.escape(s0.get('update_date') or 'n/a')}</span>",
+                        category="DRUG SHORTAGE",
+                        severity="moderate",
+                        spl_section_title="Expand Shortage Reason & Refill Guidance",
+                        spl_text=s0.get("shortage_reason") or "Contact your pharmacy ahead of time when requesting refills.",
+                        source_label="U.S. FDA openFDA Drug Shortages API",
+                    )
+                else:
+                    st.caption("✓ No active national shortage entries matched in the FDA Drug Shortages database.")
+
+            # 6D. FAERS Top Adverse Reaction Counts (.exact phrase aggregation)
+            if fda_prof.adverse_reactions.ok and fda_prof.adverse_reactions.data:
+                top_terms = fda_prof.adverse_reactions.data[:8]
+                terms_html = ", ".join(
+                    f"<strong>{html.escape(term)}</strong> (<span class='ms-mono-code'>{cnt:,}</span>)"
+                    for term, cnt in top_terms
                 )
-            else:
-                st.caption("✓ No active national shortage entries matched in the FDA Drug Shortages database.")
-
-        # 6D. FAERS Top Adverse Reaction Counts (.exact phrase aggregation)
-        if fda_prof.adverse_reactions.ok and fda_prof.adverse_reactions.data:
-            top_terms = fda_prof.adverse_reactions.data[:8]
-            terms_html = ", ".join(
-                f"<strong>{html.escape(term)}</strong> (<span class='ms-mono-code'>{cnt:,}</span>)"
-                for term, cnt in top_terms
-            )
-            st.markdown(
-                f"""
-                <div class="ms-secondary-card">
-                    <div style="font-weight:600;margin-bottom:6px;">
-                        FAERS Most Frequently Reported Adverse Event Phrases (<code>reactionmeddrapt.exact</code>)
+                ui_theme.html_markdown(f"""
+                    <div class="ms-secondary-card">
+                        <div style="font-weight:600;margin-bottom:6px;">
+                            FAERS Most Frequently Reported Adverse Event Phrases (<code>reactionmeddrapt.exact</code>)
+                        </div>
+                        <div style="margin-bottom:8px;">{terms_html}</div>
+                        <div style="font-size:0.88em;color:var(--ms-text-muted);">
+                            <strong>Epidemiological Context:</strong> {html.escape(" ".join(fda_prof.adverse_reactions.limitations))}
+                        </div>
                     </div>
-                    <div style="margin-bottom:8px;">{terms_html}</div>
-                    <div style="font-size:0.88em;color:var(--ms-text-muted);">
-                        <strong>Epidemiological Context:</strong> {html.escape(" ".join(fda_prof.adverse_reactions.limitations))}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                    """)
 
 
 # --- Section 5: Daily Schedule & In-App Checklist --------------------------
@@ -1985,7 +2114,7 @@ def render_daily_schedule(db_path: Path, lang: str) -> None:
                     "✓ Mark taken",
                     key=f"sch_take_{item.schedule_entry_id}_{day_iso}",
                     type="primary" if item.status != "taken" else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     medications.record_dose_status(db_path, item.schedule_entry_id, "taken", day_iso)
                     set_flash(f"✓ Marked **{item.medication_name}** ({item.display_time}) as taken.")
@@ -1993,7 +2122,7 @@ def render_daily_schedule(db_path: Path, lang: str) -> None:
                 if row3.button(
                     "⏭️ Mark skipped",
                     key=f"sch_skip_{item.schedule_entry_id}_{day_iso}",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     medications.record_dose_status(db_path, item.schedule_entry_id, "skipped", day_iso)
                     set_flash(f"Marked **{item.medication_name}** ({item.display_time}) as skipped.", level="warning")
@@ -2001,7 +2130,7 @@ def render_daily_schedule(db_path: Path, lang: str) -> None:
                 if row4.button(
                     "↺ Clear",
                     key=f"sch_clr_{item.schedule_entry_id}_{day_iso}",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     medications.record_dose_status(db_path, item.schedule_entry_id, None, day_iso)
                     set_flash(f"Cleared dose status for **{item.medication_name}** ({item.display_time}).", level="info")
@@ -2028,7 +2157,7 @@ def render_daily_schedule(db_path: Path, lang: str) -> None:
                     "Optional note",
                     placeholder="e.g. With breakfast, Before bed",
                 )
-                if st.button("➕ Add reminder time", key="btn_add_reminder_time", type="primary", use_container_width=True):
+                if st.button("➕ Add reminder time", key="btn_add_reminder_time", type="primary", width="stretch"):
                     medications.add_schedule_entry(
                         db_path,
                         chosen_med.id,
@@ -2045,7 +2174,7 @@ def render_daily_schedule(db_path: Path, lang: str) -> None:
                     for s in chosen_med.schedule:
                         rm_c1, rm_c2 = st.columns([3, 1])
                         rm_c1.write(f"• {s.display_time}")
-                        if rm_c2.button("Remove", key=f"rm_sched_{s.id}", use_container_width=True):
+                        if rm_c2.button("Remove", key=f"rm_sched_{s.id}", width="stretch"):
                             medications.remove_schedule_entry(db_path, s.id)
                             set_flash(f"Removed {s.display_time} reminder for **{chosen_med.display_name}**.", level="info")
                             st.rerun()
@@ -2060,7 +2189,7 @@ def render_daily_schedule(db_path: Path, lang: str) -> None:
                     data=ics_data,
                     file_name="medsafe_schedule.ics",
                     mime="text/calendar",
-                    use_container_width=True,
+                    width="stretch",
                 )
             recent_logs = medications.get_recent_dose_history(db_path, days=7)
             if not recent_logs:
@@ -2107,6 +2236,47 @@ def render_caregiver_reports(db_path: Path, lang: str, is_demo: bool) -> None:
         all_meds, report, prop_question_med.strip() or None
     )
 
+    # Dose adherence over the last 14 days (inspired by what senior-home
+    # research shows: missed evening doses go unnoticed until harm happens).
+    adherence = medications.build_adherence_summary(db_path, days=14)
+    adh_md = medications.build_adherence_markdown(adherence)
+    md_summary = md_summary + "\n---\n\n" + adh_md
+
+    st.subheader("Dose adherence — last 14 days")
+    if not adherence["has_schedule"]:
+        st.caption("No reminder times set yet — add times to medicines to track adherence.")
+    elif adherence["expected"] == 0:
+        st.caption("No doses were due in the last 14 days.")
+    else:
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
+            ui_theme.render_stat_card(adherence["expected"], "Doses due", f"since {adherence['since']}")
+        with a2:
+            pct = f"{adherence['adherence_pct']}%" if adherence["adherence_pct"] is not None else "—"
+            ui_theme.render_stat_card(adherence["taken"], "Marked taken", pct)
+        with a3:
+            ui_theme.render_stat_card(adherence["skipped"], "Marked skipped", "On purpose")
+        with a4:
+            ui_theme.render_stat_card(adherence["missed"], "Not marked", "Possibly missed")
+        if adherence["missed"]:
+            pattern_bits = []
+            if adherence["worst_bucket"]:
+                pattern_bits.append(
+                    f"most unmarked doses are **{adherence['worst_bucket']}** doses "
+                    f"({adherence['worst_bucket_missed']} of {adherence['missed']})"
+                )
+            if adherence["worst_med"]:
+                pattern_bits.append(
+                    f"**{html.escape(adherence['worst_med'])}** is affected most "
+                    f"({adherence['worst_med_missed']} unmarked)"
+                )
+            if pattern_bits:
+                st.warning("📌 Pattern: " + "; ".join(pattern_bits) + ".")
+        st.caption(
+            "'Not marked' can mean a missed dose or a dose taken but not logged — "
+            "worth discussing either way. This summary is included in the downloads below."
+        )
+
     st.subheader("1. Review Report Before Downloading")
     tab_summary, tab_questions, tab_csv = st.tabs(
         [
@@ -2131,7 +2301,7 @@ def render_caregiver_reports(db_path: Path, lang: str, is_demo: bool) -> None:
         data=csv_data,
         file_name="medsafe_medications.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     ):
         medications.record_report_generation(db_path, "csv")
     if dl2.download_button(
@@ -2139,7 +2309,7 @@ def render_caregiver_reports(db_path: Path, lang: str, is_demo: bool) -> None:
         data=md_summary,
         file_name="medsafe_summary.md",
         mime="text/markdown",
-        use_container_width=True,
+        width="stretch",
     ):
         medications.record_report_generation(db_path, "markdown")
     if dl3.download_button(
@@ -2147,7 +2317,7 @@ def render_caregiver_reports(db_path: Path, lang: str, is_demo: bool) -> None:
         data=md_summary,
         file_name="medsafe_summary.txt",
         mime="text/plain",
-        use_container_width=True,
+        width="stretch",
     ):
         medications.record_report_generation(db_path, "text")
     if dl4.download_button(
@@ -2155,7 +2325,7 @@ def render_caregiver_reports(db_path: Path, lang: str, is_demo: bool) -> None:
         data=html_data,
         file_name="medsafe_printable_report.html",
         mime="text/html",
-        use_container_width=True,
+        width="stretch",
     ):
         medications.record_report_generation(db_path, "printable_html")
 
@@ -2196,11 +2366,8 @@ def render_settings_privacy(db_path: Path, lang: str, is_demo: bool) -> None:
             set_flash(f"Switched appearance to **{ui_theme.THEME_MODES[picked_theme]}**.")
             st.rerun()
 
-        size_labels = {
-            "standard": "Standard (18 px)",
-            "large": "Large (20 px)",
-            "xlarge": "Extra Large (22 px)",
-        }
+        # Labels come from translations and match ui_theme.FONT_SCALE_PX (19/21/24)
+        size_labels = {k: t(f"font_{k}", lang) for k in ("standard", "large", "xlarge")}
         size_keys = list(size_labels.keys())
         picked_size = ac2.radio(
             "Text size",
@@ -2232,10 +2399,10 @@ def render_settings_privacy(db_path: Path, lang: str, is_demo: bool) -> None:
             st.rerun()
 
         st.info(
-            "**What do the 3 theme modes do?**\n"
-            "- **☀️ Light Mode (Daylight):** Warm daylight background (`#F4F7FB`) with white cards and dark slate text.\n"
-            "- **🌙 Dark Mode (Low Glare):** Soothing dark slate background (`#0B132B`) with bright off-white text for comfortable evening reading.\n"
-            "- **👁️ High Contrast (AAA Low Vision):** Maximum-legibility pitch-black background (`#000000`), pure white text, bright yellow headings (`#FFD60A`), and bold `2.5 px` outlines designed for seniors with low vision or cataract glare sensitivity."
+            "**Which look should I pick?**\n"
+            "- **☀️ Light** — bright background, best for daytime.\n"
+            "- **🌙 Dark** — easier on the eyes at night.\n"
+            "- **👁️ High contrast** — black background with white text and bold outlines, best for low vision."
         )
 
     col_s1, col_s2 = st.columns(2)
@@ -2259,6 +2426,17 @@ def render_settings_privacy(db_path: Path, lang: str, is_demo: bool) -> None:
                 f"- **Optional Gemini plain-language AI:** "
                 f"`{'Configured (' + config.gemini_model() + ')' if has_gemini else 'Not configured — using deterministic verified templates'}`"
             )
+            if ds.available and ds.datasets:
+                st.markdown("**Loaded interaction datasets:**")
+                for d in ds.datasets:
+                    st.markdown(
+                        f"- {html.escape(d.name)} — version `{html.escape(d.version or 'n/a')}`, "
+                        f"**{d.record_count}** records, imported `{html.escape(d.imported_at[:10])}`"
+                    )
+                st.caption(
+                    "No matching record in these datasets never proves two medicines are safe "
+                    "together. Always confirm with a pharmacist or prescriber."
+                )
 
         with st.container(border=True):
             st.subheader("📦 Import DDInter 2.0 CSV Dataset")
@@ -2316,12 +2494,12 @@ def render_settings_privacy(db_path: Path, lang: str, is_demo: bool) -> None:
         with st.container(border=True):
             st.subheader("🧹 Data Control & Reset")
             if is_demo:
-                if st.button("🔄 Reset Demo Sample Medications to Default", use_container_width=True):
+                if st.button("🔄 Reset Demo Sample Medications to Default", width="stretch"):
                     medications.ensure_demo_profile(config.demo_db_path(), force=True)
                     set_flash("✓ Demo sample profile reset to its initial 4 demonstration medications.")
                     st.rerun()
 
-            if st.button("🗑️ Clear all local medication data in current profile", use_container_width=True):
+            if st.button("🗑️ Clear all local medication data in current profile", width="stretch"):
                 st.session_state.confirm_clear_all = True
                 st.rerun()
 
@@ -2331,14 +2509,80 @@ def render_settings_privacy(db_path: Path, lang: str, is_demo: bool) -> None:
                     f"and check history in `{db_path.name}`? Loaded interaction datasets will be kept."
                 )
                 cc1, cc2 = st.columns(2)
-                if cc1.button("Yes, delete local medication data", type="primary", use_container_width=True):
+                if cc1.button("Yes, delete local medication data", type="primary", width="stretch"):
                     db.clear_user_data(db_path)
                     st.session_state.pop("confirm_clear_all", None)
                     set_flash("Cleared local medication data.")
                     st.rerun()
-                if cc2.button("Cancel", key="cancel_clear_all", use_container_width=True):
+                if cc2.button("Cancel", key="cancel_clear_all", width="stretch"):
                     st.session_state.pop("confirm_clear_all", None)
                     st.rerun()
+
+
+# --- First-launch setup ------------------------------------------------------
+
+def _needs_first_launch_setup() -> bool:
+    """True only on a genuinely fresh install: setup never completed, no
+    language ever saved, and not driven by the test harness or demo flag."""
+    if st.session_state.get("skip_setup") or st.session_state.get("profile_mode"):
+        return False
+    if "nav_section" in st.session_state:  # test harness / deep link
+        return False
+    personal = config.personal_db_path()
+    if db.get_setting(personal, "setup_complete") == "1":
+        return False
+    if db.get_setting(personal, "language") is not None:
+        return False  # pre-wizard install: already configured, don't re-ask
+    return True
+
+
+def render_first_launch_setup() -> None:
+    """Two questions, huge text, live preview. Both answers are saved to the
+    local settings database and remain changeable later in Settings & Privacy."""
+    lang = st.session_state.language
+    st.markdown(f"# 🛡️ {t('setup_title', lang)}")
+    st.write(t("setup_subtitle", lang))
+
+    lang_keys = list(SUPPORTED_LANGUAGES.keys())
+    picked_lang = st.selectbox(
+        t("setup_lang_label", lang),
+        options=lang_keys,
+        index=lang_keys.index(lang) if lang in lang_keys else 0,
+        format_func=lambda k: SUPPORTED_LANGUAGES[k],
+        key="setup_lang_select",
+    )
+    if picked_lang != lang:
+        st.session_state.language = picked_lang
+        st.rerun()  # re-render the wizard itself in the chosen language
+
+    size_keys = ["standard", "large", "xlarge"]
+    picked_size = st.radio(
+        t("setup_font_label", lang),
+        options=size_keys,
+        index=size_keys.index(st.session_state.font_size)
+        if st.session_state.font_size in size_keys
+        else 0,
+        format_func=lambda k: t(f"font_{k}", lang),
+        key="setup_size_radio",
+    )
+    if picked_size != st.session_state.font_size:
+        st.session_state.font_size = picked_size
+        st.rerun()  # live preview: the whole page re-renders at the new size
+
+    preview_px = ui_theme.FONT_SCALE_PX.get(picked_size, 19)
+    st.markdown(
+        f"<p style='font-size:{preview_px}px; border:1px solid #999; "
+        f"border-radius:8px; padding:16px;'>{t('setup_preview', lang)}</p>",
+        unsafe_allow_html=True,
+    )
+
+    if st.button(t("setup_start", lang), type="primary", key="setup_start"):
+        personal = config.personal_db_path()
+        db.set_setting(personal, "language", st.session_state.language)
+        db.set_setting(personal, "font_size", st.session_state.font_size)
+        db.set_setting(personal, "setup_complete", "1")
+        navigate_to("overview")
+        st.rerun()
 
 
 # --- Main App Render -------------------------------------------------------
@@ -2348,6 +2592,11 @@ ui_theme.inject_theme_css(
     theme_mode=st.session_state.theme_mode,
     high_contrast=st.session_state.high_contrast,
 )
+
+if _needs_first_launch_setup():
+    render_first_launch_setup()
+    st.stop()
+
 render_sidebar()
 
 current_lang = st.session_state.language
@@ -2361,8 +2610,10 @@ section_title_map = {
     "scan": t("nav_scan", current_lang),
     "checker": t("nav_checker", current_lang),
     "schedule": t("nav_schedule", current_lang),
+    "more": t("nav_more", current_lang),
     "reports": t("nav_reports", current_lang),
     "settings": t("nav_settings", current_lang),
+    "help": t("nav_help", current_lang),
 }
 
 ui_theme.render_app_header(
@@ -2378,6 +2629,59 @@ render_flash()
 for prob in STARTUP_PROBLEMS.get("demo" if current_demo else "personal", []):
     st.error(f"Startup dataset notice: {prob}")
 
+def render_more_hub(lang: str) -> None:
+    """One-tap hub for the less-frequent destinations, kept out of the main
+    navigation so the primary choices stay simple for senior users."""
+    st.header(f"☰ {t('nav_more', lang)}")
+    st.write(t("more_subtitle", lang))
+    items = (
+        ("reports", "📋", t("nav_reports", lang), t("more_reports_hint", lang)),
+        ("settings", "⚙️", t("nav_settings", lang), t("more_settings_hint", lang)),
+        ("help", "📖", t("nav_help", lang), t("more_help_hint", lang)),
+    )
+    for sec, icon, label, hint in items:
+        with st.container(border=True):
+            c1, c2 = st.columns([3, 1])
+            c1.markdown(f"### {icon} {label}")
+            c1.caption(hint)
+            if c2.button(t("open_label", lang), key=f"more_open_{sec}", width="stretch"):
+                navigate_to(sec)
+                st.rerun()
+
+
+def render_help(lang: str, is_demo: bool) -> None:
+    """Full how-to guide and safety-rules walkthrough (moved off Overview so
+    the home screen stays uncluttered)."""
+    st.header(f"📖 {t('nav_help', lang)}")
+
+    st.subheader(t("onboarding_title", lang))
+    for step_key in (
+        "onboarding_step_1",
+        "onboarding_step_2",
+        "onboarding_step_3",
+        "onboarding_step_4",
+        "onboarding_step_5",
+    ):
+        st.markdown(f"- {t(step_key, lang)}")
+
+    st.subheader(t("help_safety_heading", lang))
+    st.markdown(t("help_safety_body", lang))
+
+    if is_demo:
+        st.subheader("Congressional App Challenge quick demo walkthrough")
+        st.info(
+            "1. Inspect the 4 sample entries in **My Medicines** (3 confirmed prescriptions + 1 unconfirmed herbal supplement).\n"
+            "2. Inside **My Medicines**, open **Scan a Bottle** and photograph any pill bottle — the scan is read locally with automatic redaction of personal details.\n"
+            "3. Open **Safety Checker**, pick **Ibuprofen 200 mg (Advil)** as a proposed OTC pain reliever, confirm its identity, and run the deterministic lookup against **Lisinopril + Metformin**.\n"
+            "4. Switch the language selector in the sidebar to **Español**, **हिन्दी**, **中文**, **Tagalog**, **Tiếng Việt**, or **Français** to see the localized plain-language explanation alongside the original English source record.\n"
+            "5. Open **Daily Schedule**, then **More → Caregiver & Reports** to review the timeline and downloadable pharmacist summary."
+        )
+
+    if st.button(f"🏠 {t('back_to_home', lang)}", key="help_back_home"):
+        navigate_to("overview")
+        st.rerun()
+
+
 if sec_key == "overview":
     render_overview(current_db, current_lang, current_demo)
 elif sec_key == "medicines":
@@ -2388,10 +2692,14 @@ elif sec_key == "checker":
     render_safety_checker(current_db, current_lang, current_demo)
 elif sec_key == "schedule":
     render_daily_schedule(current_db, current_lang)
+elif sec_key == "more":
+    render_more_hub(current_lang)
 elif sec_key == "reports":
     render_caregiver_reports(current_db, current_lang, current_demo)
 elif sec_key == "settings":
     render_settings_privacy(current_db, current_lang, current_demo)
+elif sec_key == "help":
+    render_help(current_lang, current_demo)
 
 st.divider()
 ui_theme.render_clinical_metadata_footer()

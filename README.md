@@ -20,7 +20,7 @@ Unlike generic health chatbots that ask an LLM whether two medicines are safe to
 
 ## 2. Problem Statement & Target Audience
 
-Over **40% of older adults in the United States** take five or more prescription medications regularly, alongside OTC pain relievers, cold medicines, and dietary supplements. Managing complex regimens creates three major challenges:
+More than **40% of older adults in the United States** take five or more prescription medications regularly (Lown Institute, *Medication Overload*, 2019), alongside OTC pain relievers, cold medicines, and dietary supplements. Managing complex regimens creates three major challenges:
 
 1. **Hidden Ingredient Overlap & Interactions:** Brand-name or combination products (e.g., taking an OTC NSAID like Advil while prescribed Lisinopril and Warfarin, or taking Tylenol alongside a hydrocodone/acetaminophen combination) can introduce serious bleeding, kidney, or duplicate-ingredient risks.
 2. **Dense Clinical Jargon & Language Barriers:** Official package inserts are printed in tiny fonts and dense pharmacological language, creating barriers for seniors and non-English speakers.
@@ -90,13 +90,13 @@ flowchart TD
 
 ## 6. Tech Stack
 
-- **Language:** Python 3.10+ (tested on Python 3.14)
+- **Language:** Python 3.10 or newer (the code uses modern type-hint syntax that does not run on 3.9; on a Mac whose system Python is 3.9, install Python 3.12 from python.org or Homebrew and run commands with `python3.12`)
 - **User Interface:** Streamlit (`app.py`, `ui_theme.py`) with custom accessible CSS design tokens
 - **Database:** SQLite3 (`db.py`) with versioned migrations (`SCHEMA_VERSION = 2`) and foreign-key enforcement
 - **Drug Normalization & Labeling:** NLM RxNorm REST API + openFDA Drug Labeling API (`drug_data.py`) via `requests`
 - **Optical Character Recognition:** Pillow (`PIL`) + `pytesseract` (`ocr_service.py`)
 - **Optional AI Explanation & Translation:** Google Gemini `v1beta/interactions` REST API (`ai_explain.py`)
-- **Automated Testing:** `pytest` + `streamlit.testing.v1.AppTest` (32 automated unit and integration tests)
+- **Automated Testing:** `pytest` + `streamlit.testing.v1.AppTest` (83 automated unit and integration tests across 7 modules)
 
 ---
 
@@ -143,7 +143,25 @@ py -m streamlit run app.py
 python3 -m streamlit run app.py
 ```
 
+> macOS note: if `python3 --version` shows 3.9 (the Xcode default), use `python3.12 -m venv .venv` when creating the virtual environment, or run directly with `python3.12 -m streamlit run app.py`.
+
 The app will open in your browser at `http://localhost:8501`.
+
+### Using MedSafe from a tablet or phone (same Wi-Fi)
+
+Seniors are far more comfortable on a tablet than a laptop. Start the app so other
+devices on your home network can reach it:
+
+```bash
+python3 -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+```
+
+Streamlit prints a **Network URL** such as `http://192.168.1.25:8501` — open that
+address in the tablet's or phone's browser. Notes: both devices must be on the same
+Wi-Fi; macOS may ask once to allow incoming connections for Python (click Allow);
+the app is only reachable on your home network, never from the internet; and the
+camera in Scan a Bottle will use the tablet's camera (most browsers require you to
+tap Allow for camera access).
 - Click **Try Guided Demo Profile** in the top banner or sidebar to explore the pre-loaded senior polypharmacy scenario (`Lisinopril 10 mg`, `Warfarin 5 mg`, `Ibuprofen 200 mg`, `Metformin 500 mg`, `Potassium Chloride 20 mEq`, and `Calcium + Vitamin D3`) without affecting your personal medication list.
 
 ---
@@ -162,7 +180,7 @@ To enable optional AI-assisted plain-language explanations:
    GEMINI_API_KEY=your_gemini_api_key_here
    GEMINI_MODEL=gemini-3.8-flash
    ```
-3. You can switch between **Deterministic Template (Recommended — no API required)** and **Gemini AI Assistant (Grounded to database record)** inside the **Safety Checker** tab at any time.
+3. With a key configured, the Safety Checker uses the Gemini AI assistant automatically for plain-language explanations (each result shows its explanation source). Without a key — or whenever an AI response fails validation — it falls back to the deterministic templates.
 
 ---
 
@@ -225,7 +243,7 @@ py tools/convert_ddinter.py path/to/ddinter_csv_folder --version 2.0
 
 ## 16. Running Automated Tests
 
-Run the full test suite (32 tests across 6 test modules) with `pytest`:
+Run the full test suite (83 tests across 7 test modules) with `pytest`:
 
 ```bash
 py -m pytest -v
@@ -240,28 +258,6 @@ Test modules:
 - `tests/test_app_logic.py`: End-to-end Congressional App Challenge demo flow, translation completeness across all 3 languages, DDInter folder import, and headless Streamlit `AppTest` verification across all 7 UI sections.
 
 ---
-
-## 17. Privacy Notes
-
-- **Local-First SQLite Storage:** Personal medication lists, schedules, and dose logs are stored locally on your device in `data/medsafe.sqlite3` (and `data/medsafe_demo.sqlite3` for the isolated demo profile).
-- **No Unsolicited Outbound Transmission:** Automatic caregiver email alerts have been intentionally removed so medication data never leaves your computer unexpectedly.
-- **PII Redaction Before Display:** `ocr_service.redact_label_pii()` masks phone numbers, Rx numbers, and street address patterns on scanned bottle text.
-- **Zero AI Retention Flag:** Optional Gemini API calls pass `"store": False` and send only the normalized drug names and deterministic database record — never raw bottle photos, patient names, or full medication schedules.
-
----
-
-## 18. Known Limitations & Future Improvements
-
-- **Starter Dataset Coverage:** The bundled starter dataset contains 34 drug–drug pairs and 13 food precautions for demonstration and educational use. It is not a comprehensive clinical compendium.
-- **Pairwise Scope:** The deterministic engine checks drug–drug pairs, active-ingredient duplicates, and food precautions, but does not evaluate patient-specific kidney/liver function (eGFR/Child-Pugh), age/weight dosing, allergies, or three-way pharmacodynamic interactions.
-- **Future Enhancements:** Optional RxImage pill visual verification, FHIR `MedicationStatement` export for patient portals, and localized voice read-aloud (Web Speech API) for low-vision accessibility.
-
----
-
-## 19. Medical Disclaimer
-
-> **IMPORTANT MEDICAL DISCLAIMER:**  
-> MedSafe is an educational medication organization prototype created for the Congressional App Challenge. It is **not** a medical device, clinical decision support system, or substitute for professional medical judgment. Absence of an interaction alert in MedSafe **never** means two medications are safe to take together. Always consult a licensed pharmacist or physician before starting, stopping, or changing any medication, dose, or schedule. In a medical emergency, call **911** or Poison Control at **1-800-222-1222** immediately.
 
 ## 17. Privacy Notes
 

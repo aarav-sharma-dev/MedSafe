@@ -517,6 +517,11 @@ def explain_structured(
 
     prompt = _build_prompt(info, lang)
     http = session or requests
+    models_to_try = (
+        config.gemini_model_chain()
+        if hasattr(config, "gemini_model_chain")
+        else [config.gemini_model()]
+    )
     body = {
         "model": config.gemini_model(),
         "input": prompt,
@@ -532,14 +537,22 @@ def explain_structured(
         },
     }
     try:
-        resp = http.post(
-            config.GEMINI_ENDPOINT,
-            params={"key": api_key},
-            json=body,
-            timeout=config.AI_TIMEOUT,
-        )
-        resp.raise_for_status()
-        raw_text = _extract_interaction_text(resp.json())
+        # Auth via header, not ?key= query param: the Interactions API expects
+        # x-goog-api-key, and keys never belong in URLs (they end up in logs).
+        raw_text = None
+        for model_name in models_to_try:
+            body["model"] = model_name
+            resp = http.post(
+                config.GEMINI_ENDPOINT,
+                headers={"x-goog-api-key": api_key},
+                json=body,
+                timeout=config.AI_TIMEOUT,
+            )
+            if resp.status_code in (429, 403, 404, 500, 503) and model_name != models_to_try[-1]:
+                continue  # quota-limited or unknown model: try the fallback
+            resp.raise_for_status()
+            raw_text = _extract_interaction_text(resp.json())
+            break
         if not raw_text:
             raise ValueError("empty_model_output")
         parsed = json.loads(raw_text)

@@ -66,6 +66,44 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_schedule": "Daily Schedule",
         "nav_reports": "Caregiver & Reports",
         "nav_settings": "Settings & Privacy",
+        "nav_more": "More",
+        "nav_help": "Help & how it works",
+        "open_label": "Open",
+        "open_full_guide": "Open the full guide",
+        "back_to_home": "Back to Home",
+        "glance_title": 'At a glance',
+        "glance_all_clear": 'Nothing needs your attention. No documented problems were found among your medicines.',
+        "glance_clear_rest": 'Everything else checked out fine',
+        "glance_same_med": 'Same medicine twice — risk of double dose',
+        "glance_unchecked": 'Not checked yet — medicine identity needs confirming',
+        "glance_food": 'Food and drink to watch',
+        "glance_details_below": 'Plain-language explanations for each item are below.',
+        "severity_legend": '🔴 Serious: could cause real harm — act on it · 🟠 Moderate: mention it to your doctor or pharmacist · 🟡 Mild: usually fine — good to be aware of',
+        "more_subtitle": "Reports, settings, and the full how-to guide live here, one tap away.",
+        "more_reports_hint": "Print or download a medication summary for your pharmacist or family.",
+        "more_settings_hint": "Font size, language, appearance, datasets, and privacy controls.",
+        "more_help_hint": "Step-by-step guide to using MedSafe, and how its safety checks work.",
+        "help_safety_heading": "How MedSafe keeps its answers honest",
+        "help_safety_body": (
+            "- A verified interaction database — never AI — decides whether two medicines "
+            "have a documented interaction.\n"
+            "- \"No matching record\" never means \"safe\"; it only means the loaded dataset "
+            "has no entry for that pair.\n"
+            "- Every medicine identity must be confirmed by a person before it is checked.\n"
+            "- The optional AI only rewrites a confirmed database record into plain words, "
+            "and its answer is rejected if it adds facts, changes the severity, or gives "
+            "dosing advice.\n"
+            "- Always talk to your pharmacist or doctor before changing any medicine."
+        ),
+        "setup_title": "Welcome to MedSafe",
+        "setup_subtitle": "Two quick questions to make the app comfortable to read. You can change both anytime in Settings & Privacy.",
+        "setup_lang_label": "Which language do you prefer?",
+        "setup_font_label": "How large should the text be?",
+        "setup_preview": "This is how text will look: Take 1 tablet every morning with food.",
+        "setup_start": "Start using MedSafe",
+        "font_standard": "Standard (19 px)",
+        "font_large": "Large (21 px)",
+        "font_xlarge": "Extra large (24 px)",
 
         # Onboarding
         "onboarding_title": "How MedSafe works (5 quick steps)",
@@ -127,10 +165,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # Scan a Bottle
         "scan_heading": "Scan a Medication Bottle",
-        "scan_subtitle": (
-            "Capture or upload a clear photo of a pill bottle label, or try a built-in "
-            "demonstration label. Every scanned medicine requires your review before saving."
-        ),
+        "scan_subtitle": "Take or upload a photo of the label. Every scan is reviewed by you before anything is saved.",
         "ocr_review_heading": "Review scanned label before saving",
         "ocr_uncertainty_banner": (
             "Human confirmation required: A photo of a bottle is not proof of identity. "
@@ -157,10 +192,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_UNABLE_TO_CHECK": "Unable to check — medication unidentified or lookup failed",
         "status_DATASET_UNAVAILABLE": "Unable to check — interaction dataset is unavailable",
 
-        "severity_major": "Serious / Major (source classification)",
-        "severity_moderate": "Moderate (source classification)",
-        "severity_minor": "Minor / Mild (source classification)",
-        "severity_unspecified": "Unspecified by source dataset",
+        "severity_major": "Serious — be careful",
+        "severity_moderate": "Moderate — worth asking about",
+        "severity_minor": "Mild",
+        "severity_unspecified": "Severity not rated by source",
 
         "no_record_explanation": (
             "No matching interaction record was found in the loaded dataset for this pair. "
@@ -242,6 +277,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_schedule": "दैनिक समय-सारणी",
         "nav_reports": "केयरगिवर और रिपोर्ट",
         "nav_settings": "सेटिंग्स और गोपनीयता",
+        "nav_more": "और विकल्प",
+        "nav_help": "सहायता (Help)",
+        "open_label": "खोलें",
+        "open_full_guide": "पूरी गाइड खोलें",
+        "back_to_home": "होम पर वापस जाएँ",
+        "glance_title": 'एक नज़र में',
+        "glance_all_clear": 'किसी बात की चिंता नहीं। आपकी दवाओं में कोई दर्ज समस्या नहीं मिली।',
+        "glance_clear_rest": 'बाकी सब ठीक पाया गया',
+        "glance_same_med": 'एक ही दवा दो बार — दोहरी खुराक का खतरा',
+        "glance_unchecked": 'अभी जाँच नहीं हुई — दवा की पहचान की पुष्टि करें',
+        "glance_food": 'खान-पान में सावधानी',
+        "glance_details_below": 'हर बिंदु की सरल भाषा में व्याख्या नीचे दी गई है।',
+        "severity_legend": '🔴 गंभीर: वास्तविक नुकसान हो सकता है — तुरंत ध्यान दें · 🟠 मध्यम: अपने डॉक्टर या फार्मासिस्ट को बताएं · 🟡 हल्का: आमतौर पर ठीक — जानकारी रखें',
+        "more_subtitle": "रिपोर्ट, सेटिंग्स और पूरी गाइड यहाँ एक टैप पर उपलब्ध हैं।",
+        "more_reports_hint": "अपने फार्मासिस्ट या परिवार के लिए दवाओं का सारांश प्रिंट या डाउनलोड करें।",
+        "more_settings_hint": "अक्षर का आकार, भाषा, थीम, डेटासेट और गोपनीयता नियंत्रण।",
+        "more_help_hint": "MedSafe उपयोग करने की चरण-दर-चरण गाइड और सुरक्षा जाँच कैसे काम करती है।",
+        "help_safety_heading": "MedSafe अपने जवाब कैसे भरोसेमंद रखता है",
+        "help_safety_body": (
+            "- यह फ़ैसला कि दो दवाओं के बीच कोई दर्ज इंटरैक्शन है या नहीं, हमेशा सत्यापित डेटाबेस करता है — AI कभी नहीं।\n"
+            "- \"कोई रिकॉर्ड नहीं मिला\" का अर्थ \"सुरक्षित\" नहीं है; इसका अर्थ केवल यह है कि लोड किए गए डेटासेट में उस जोड़ी की कोई प्रविष्टि नहीं है।\n"
+            "- जाँच से पहले हर दवा की पहचान एक व्यक्ति द्वारा पुष्ट होनी चाहिए।\n"
+            "- वैकल्पिक AI केवल पुष्ट डेटाबेस रिकॉर्ड को सरल भाषा में लिखता है; यदि वह कोई तथ्य जोड़े, गंभीरता बदले या खुराक की सलाह दे तो उसका जवाब अस्वीकार कर दिया जाता है।\n"
+            "- कोई भी दवा बदलने से पहले हमेशा अपने फार्मासिस्ट या डॉक्टर से बात करें।"
+        ),
+        "setup_title": "MedSafe में आपका स्वागत है",
+        "setup_subtitle": "ऐप को पढ़ने में आरामदायक बनाने के लिए दो छोटे सवाल। इन्हें आप बाद में कभी भी सेटिंग्स में बदल सकते हैं।",
+        "setup_lang_label": "आप कौन सी भाषा पसंद करते हैं?",
+        "setup_font_label": "अक्षर कितने बड़े होने चाहिए?",
+        "setup_preview": "टेक्स्ट ऐसा दिखेगा: हर सुबह भोजन के साथ 1 गोली लें।",
+        "setup_start": "MedSafe शुरू करें",
+        "font_standard": "सामान्य (19 px)",
+        "font_large": "बड़ा (21 px)",
+        "font_xlarge": "बहुत बड़ा (24 px)",
         "onboarding_title": "MedSafe कैसे काम करता है (5 आसान चरण)",
         "onboarding_step_1": "1. दवा का नाम टाइप करें या दवा की बोतल का लेबल स्कैन करें।",
         "onboarding_step_2": "2. सेव करने से पहले दवा के मुख्य घटक (ingredient) और ताकत (mg) की पुष्टि करें।",
@@ -285,10 +354,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "duplicate_warning_title": "संभावित दोहराव या समान घटक वाली दवाएं",
         "duplicate_warning_body": "कृपया अपने फार्मासिस्ट से पूछें कि क्या ये दवाएं एक साथ ली जानी चाहिए:",
         "scan_heading": "दवा की बोतल स्कैन करें",
-        "scan_subtitle": (
-            "बोतल के लेबल की स्पष्ट फोटो अपलोड करें या डेमो लेबल आज़माएं। सेव करने से पहले आपकी "
-            "पुष्टि आवश्यक है।"
-        ),
+        "scan_subtitle": "लेबल की फोटो लें या अपलोड करें। सेव करने से पहले हर स्कैन की आप स्वयं जाँच करते हैं।",
         "ocr_review_heading": "सेव करने से पहले स्कैन किए गए विवरण की जांच करें",
         "ocr_uncertainty_banner": (
             "मानवीय पुष्टि आवश्यक: केवल फोटो से दवा की पक्की पहचान नहीं होती। कृपया अपनी असली "
@@ -308,10 +374,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_IDENTITY_REQUIRES_CONFIRMATION": "जांच रुकी — दवा की पहचान की पुष्टि आवश्यक है",
         "status_UNABLE_TO_CHECK": "जांच असंभव — दवा अज्ञात है या खोज विफल रही",
         "status_DATASET_UNAVAILABLE": "जांच असंभव — इंटरैक्शन डेटासेट उपलब्ध नहीं है",
-        "severity_major": "गंभीर / Major (स्रोत वर्गीकरण)",
-        "severity_moderate": "मध्यम / Moderate (स्रोत वर्गीकरण)",
-        "severity_minor": "हल्का / Minor (स्रोत वर्गीकरण)",
-        "severity_unspecified": "स्रोत डेटासेट में स्तर अनिर्दिष्ट",
+        "severity_major": "गंभीर — सावधान रहें",
+        "severity_moderate": "मध्यम — डॉक्टर से पूछें",
+        "severity_minor": "हल्का",
+        "severity_unspecified": "स्रोत ने गंभीरता नहीं बताई",
         "no_record_explanation": (
             "लोड किए गए डेटासेट में इस जोड़ी के लिए कोई इंटरैक्शन रिकॉर्ड नहीं मिला। चूंकि यह डेटासेट "
             "अधूरा है, इसलिए इसका यह अर्थ नहीं है कि ये दवाएं एक साथ लेना पूरी तरह सुरक्षित है। "
@@ -377,6 +443,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_schedule": "Horario Diario",
         "nav_reports": "Cuidadores e Informes",
         "nav_settings": "Ajustes y Privacidad",
+        "nav_more": "Más",
+        "nav_help": "Ayuda y funcionamiento",
+        "open_label": "Abrir",
+        "open_full_guide": "Abrir la guía completa",
+        "back_to_home": "Volver al inicio",
+        "glance_title": 'De un vistazo',
+        "glance_all_clear": 'Nada requiere su atención. No se encontraron problemas documentados entre sus medicamentos.',
+        "glance_clear_rest": 'Todo lo demás salió bien',
+        "glance_same_med": 'El mismo medicamento dos veces — riesgo de dosis doble',
+        "glance_unchecked": 'Sin revisar — falta confirmar la identidad del medicamento',
+        "glance_food": 'Alimentos y bebidas a vigilar',
+        "glance_details_below": 'Abajo encontrará explicaciones sencillas de cada punto.',
+        "severity_legend": '🔴 Grave: puede causar daño real — actúe · 🟠 Moderada: coménteselo a su médico o farmacéutico · 🟡 Leve: normalmente sin problema — conviene saberlo',
+        "more_subtitle": "Los informes, los ajustes y la guía completa están aquí, a un toque.",
+        "more_reports_hint": "Imprima o descargue un resumen de medicamentos para su farmacéutico o su familia.",
+        "more_settings_hint": "Tamaño de letra, idioma, apariencia, datos y controles de privacidad.",
+        "more_help_hint": "Guía paso a paso para usar MedSafe y cómo funcionan sus verificaciones de seguridad.",
+        "help_safety_heading": "Cómo MedSafe mantiene honestas sus respuestas",
+        "help_safety_body": (
+            "- Una base de datos verificada —nunca la IA— decide si dos medicamentos tienen una interacción documentada.\n"
+            "- \"Sin registro coincidente\" nunca significa \"seguro\"; solo significa que el conjunto de datos cargado no tiene una entrada para ese par.\n"
+            "- Una persona debe confirmar la identidad de cada medicamento antes de la verificación.\n"
+            "- La IA opcional solo reescribe en palabras sencillas un registro confirmado de la base de datos, y su respuesta se rechaza si añade datos, cambia la gravedad o da consejos de dosis.\n"
+            "- Hable siempre con su farmacéutico o médico antes de cambiar cualquier medicamento."
+        ),
+        "setup_title": "Bienvenido a MedSafe",
+        "setup_subtitle": "Dos preguntas rápidas para que la aplicación sea cómoda de leer. Puede cambiarlas en cualquier momento en Ajustes y Privacidad.",
+        "setup_lang_label": "¿Qué idioma prefiere?",
+        "setup_font_label": "¿Qué tamaño de letra prefiere?",
+        "setup_preview": "Así se verá el texto: Tome 1 tableta cada mañana con alimentos.",
+        "setup_start": "Empezar a usar MedSafe",
+        "font_standard": "Estándar (19 px)",
+        "font_large": "Grande (21 px)",
+        "font_xlarge": "Muy grande (24 px)",
         "onboarding_title": "Cómo funciona MedSafe (5 pasos sencillos)",
         "onboarding_step_1": "1. Agregue medicamentos escribiendo el nombre o escaneando la etiqueta del frasco.",
         "onboarding_step_2": "2. Revise y confirme el ingrediente activo, la concentración y la forma farmacéutica.",
@@ -430,10 +530,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "si ambos medicamentos deben tomarse juntos:"
         ),
         "scan_heading": "Escanear un Frasco de Medicamento",
-        "scan_subtitle": (
-            "Tome o suba una foto clara de la etiqueta del frasco, o pruebe una etiqueta de "
-            "demostración. Todo medicamento escaneado requiere su confirmación antes de guardarse."
-        ),
+        "scan_subtitle": "Tome o suba una foto de la etiqueta. Usted revisa cada escaneo antes de guardar nada.",
         "ocr_review_heading": "Revise la etiqueta escaneada antes de guardar",
         "ocr_uncertainty_banner": (
             "Se requiere confirmación humana: Una foto no confirma por sí sola la identidad del "
@@ -455,10 +552,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_IDENTITY_REQUIRES_CONFIRMATION": "Pendiente — se requiere confirmar la identidad del medicamento",
         "status_UNABLE_TO_CHECK": "No se pudo verificar — medicamento no identificado o fallo de consulta",
         "status_DATASET_UNAVAILABLE": "No se pudo verificar — la base de datos no está disponible",
-        "severity_major": "Grave / Mayor (clasificación de la fuente)",
-        "severity_moderate": "Moderada (clasificación de la fuente)",
-        "severity_minor": "Leve / Menor (clasificación de la fuente)",
-        "severity_unspecified": "No especificada por la base de datos de origen",
+        "severity_major": "Grave — tenga cuidado",
+        "severity_moderate": "Moderada — vale la pena preguntar",
+        "severity_minor": "Leve",
+        "severity_unspecified": "Gravedad no clasificada por la fuente",
         "no_record_explanation": (
             "No se encontró ningún registro de interacción coincidente en la base de datos "
             "cargada para este par. Debido a que la base de datos es incompleta, este resultado "
@@ -528,6 +625,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_schedule": "每日服药计划",
         "nav_reports": "家属与药师报告",
         "nav_settings": "设置与隐私",
+        "nav_more": "更多",
+        "nav_help": "帮助与使用说明",
+        "open_label": "打开",
+        "open_full_guide": "打开完整指南",
+        "back_to_home": "返回主页",
+        "glance_title": '一目了然',
+        "glance_all_clear": '无需担心。您的药物之间未发现有记录的问题。',
+        "glance_clear_rest": '其余均未发现问题',
+        "glance_same_med": '同一种药出现两次——有双倍剂量风险',
+        "glance_unchecked": '尚未检查——需先确认药物身份',
+        "glance_food": '需注意的饮食',
+        "glance_details_below": '每一项的通俗解释见下方。',
+        "severity_legend": '🔴 严重：可能造成实际伤害——请及时处理 · 🟠 中度：请告知医生或药剂师 · 🟡 轻度：通常无碍——知悉即可',
+        "more_subtitle": "报告、设置和完整使用指南都在这里，一键可达。",
+        "more_reports_hint": "为您的药剂师或家人打印或下载用药摘要。",
+        "more_settings_hint": "字体大小、语言、外观、数据集和隐私控制。",
+        "more_help_hint": "MedSafe 的分步使用指南，以及安全检查的工作原理。",
+        "help_safety_heading": "MedSafe 如何确保答案可靠",
+        "help_safety_body": (
+            "- 判断两种药物是否存在已记录的相互作用的，始终是经过验证的数据库——绝不是 AI。\n"
+            "- “未找到匹配记录”绝不等于“安全”，只表示已加载的数据集中没有该组合的条目。\n"
+            "- 每种药物的身份都必须先经人工确认，然后才会进行检查。\n"
+            "- 可选的 AI 只负责把已确认的数据库记录改写成通俗语言；如果它添加事实、更改严重程度或给出剂量建议，其回答将被拒绝。\n"
+            "- 更改任何药物前，请务必咨询您的药剂师或医生。"
+        ),
+        "setup_title": "欢迎使用 MedSafe",
+        "setup_subtitle": "两个小问题，让应用更容易阅读。您随时可以在“设置与隐私”中更改。",
+        "setup_lang_label": "您偏好哪种语言？",
+        "setup_font_label": "文字要多大？",
+        "setup_preview": "文字将这样显示：每天早晨随餐服用 1 片。",
+        "setup_start": "开始使用 MedSafe",
+        "font_standard": "标准（19 px）",
+        "font_large": "大（21 px）",
+        "font_xlarge": "特大（24 px）",
         "onboarding_title": "MedSafe 使用指南（5 个简单步骤）",
         "onboarding_step_1": "1. 输入药名或扫描药瓶标签来添加药物。",
         "onboarding_step_2": "2. 保存前核对并确认每种药物的有效成分、剂量和剂型。",
@@ -567,7 +698,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "duplicate_warning_title": "可能存在重复药物或相同有效成分",
         "duplicate_warning_body": "以下药物可能含有相同成分或名称相近，请向药剂师确认是否应同时服用：",
         "scan_heading": "扫描药瓶标签",
-        "scan_subtitle": "上传清晰的药瓶照片或体验内置示例标签。所有扫描结果在保存前均需人工核对。",
+        "scan_subtitle": "拍摄或上传标签照片。所有扫描结果在保存前均由您本人核对。",
         "ocr_review_heading": "保存前请核对扫描信息",
         "ocr_uncertainty_banner": (
             "必须人工确认：药瓶照片本身不能保证识别完全准确，请对照实物药瓶核对药名、有效成分、剂量及用法。"
@@ -585,10 +716,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_IDENTITY_REQUIRES_CONFIRMATION": "暂无法检查 — 需先确认药物有效成分",
         "status_UNABLE_TO_CHECK": "无法检查 — 药物未识别或查询失败",
         "status_DATASET_UNAVAILABLE": "无法检查 — 相互作用数据库不可用",
-        "severity_major": "严重 / Major（来源分级）",
-        "severity_moderate": "中度 / Moderate（来源分级）",
-        "severity_minor": "轻度 / Minor（来源分级）",
-        "severity_unspecified": "来源数据库未指定级别",
+        "severity_major": "严重——请当心",
+        "severity_moderate": "中度——值得询问",
+        "severity_minor": "轻度",
+        "severity_unspecified": "来源未评定严重程度",
         "no_record_explanation": (
             "在已加载的数据库中未找到这对药物的相互作用记录。由于数据库并不完整，该结果并不代表这两种药"
             "一起服用绝对安全。如有疑问，请咨询药剂师或医生。"
@@ -647,6 +778,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_schedule": "Pang-araw-araw na Iskedyul",
         "nav_reports": "Ulat para sa Doktor / Pamilya",
         "nav_settings": "Settings at Privacy",
+        "nav_more": "Iba pa",
+        "nav_help": "Tulong at paano gamitin",
+        "open_label": "Buksan",
+        "open_full_guide": "Buksan ang buong gabay",
+        "back_to_home": "Bumalik sa Home",
+        "glance_title": 'Sa isang tingin',
+        "glance_all_clear": 'Walang dapat alalahanin. Walang nakadokumentong problema sa inyong mga gamot.',
+        "glance_clear_rest": 'Maayos ang lahat ng iba pa',
+        "glance_same_med": 'Parehong gamot nang dalawang beses — panganib ng dobleng dosis',
+        "glance_unchecked": 'Hindi pa nasusuri — kumpirmahin muna ang gamot',
+        "glance_food": 'Pagkain at inuming dapat bantayan',
+        "glance_details_below": 'Nasa ibaba ang simpleng paliwanag ng bawat isa.',
+        "severity_legend": '🔴 Malubha: maaaring makapinsala — kumilos agad · 🟠 Katamtaman: sabihin sa doktor o parmasyutiko · 🟡 Bahagya: kadalasang ayos lang — mabuting malaman',
+        "more_subtitle": "Narito ang mga ulat, setting, at buong gabay — isang pindot lang.",
+        "more_reports_hint": "I-print o i-download ang buod ng mga gamot para sa inyong parmasyutiko o pamilya.",
+        "more_settings_hint": "Laki ng titik, wika, itsura, dataset, at mga kontrol sa privacy.",
+        "more_help_hint": "Hakbang-hakbang na gabay sa paggamit ng MedSafe at kung paano gumagana ang mga safety check.",
+        "help_safety_heading": "Paano pinapanatiling tapat ng MedSafe ang mga sagot nito",
+        "help_safety_body": (
+            "- Ang beripikadong database — hindi kailanman ang AI — ang nagpapasya kung may nakadokumentong interaksyon ang dalawang gamot.\n"
+            "- Ang \"walang tugmang rekord\" ay hindi nangangahulugang \"ligtas\"; ibig sabihin lang nito ay walang entry ang naka-load na dataset para sa pares na iyon.\n"
+            "- Kailangang kumpirmahin ng tao ang pagkakakilanlan ng bawat gamot bago ito suriin.\n"
+            "- Ang opsyonal na AI ay nagsasalin lamang ng kumpirmadong rekord ng database sa simpleng salita; tatanggihan ang sagot nito kung magdagdag ito ng impormasyon, magbago ng kalubhaan, o magbigay ng payo sa dosis.\n"
+            "- Laging kumunsulta sa inyong parmasyutiko o doktor bago baguhin ang anumang gamot."
+        ),
+        "setup_title": "Maligayang pagdating sa MedSafe",
+        "setup_subtitle": "Dalawang mabilis na tanong para maging komportable basahin ang app. Maaari ninyo itong baguhin anumang oras sa Settings at Privacy.",
+        "setup_lang_label": "Anong wika ang gusto ninyo?",
+        "setup_font_label": "Gaano kalaki dapat ang titik?",
+        "setup_preview": "Ganito ang itsura ng teksto: Uminom ng 1 tableta tuwing umaga kasabay ng pagkain.",
+        "setup_start": "Simulan ang MedSafe",
+        "font_standard": "Karaniwan (19 px)",
+        "font_large": "Malaki (21 px)",
+        "font_xlarge": "Napakalaki (24 px)",
         "onboarding_title": "Paano gumagana ang MedSafe (5 hakbang)",
         "onboarding_step_1": "1. Magdagdag ng gamot sa pamamagitan ng pag-type o pag-scan ng bote.",
         "onboarding_step_2": "2. Suriin at kumpirmahin ang active ingredient, lakas (mg), at anyo ng gamot.",
@@ -687,7 +852,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "duplicate_warning_title": "Posibleng dobleng gamot o magkaparehong sangkap",
         "duplicate_warning_body": "Pakitanong sa iyong parmasyutiko kung dapat inumin nang sabay ang mga ito:",
         "scan_heading": "Mag-scan ng Bote ng Gamot",
-        "scan_subtitle": "Mag-upload ng malinaw na larawan ng etiketa o subukan ang built-in na demo label.",
+        "scan_subtitle": "Kumuha o mag-upload ng larawan ng etiketa. Ikaw ang magrerepaso ng bawat scan bago i-save.",
         "ocr_review_heading": "Suriin ang na-scan na etiketa bago i-save",
         "ocr_uncertainty_banner": (
             "Kailangan ng kumpirmasyon: Pakisuri ang pangalan, active ingredient, lakas, at direksyon "
@@ -706,10 +871,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_IDENTITY_REQUIRES_CONFIRMATION": "Hindi pa masuri — kailangang kumpirmahin ang gamot",
         "status_UNABLE_TO_CHECK": "Hindi masuri — hindi natukoy ang gamot",
         "status_DATASET_UNAVAILABLE": "Hindi masuri — hindi magamit ang database",
-        "severity_major": "Malubha / Major (klasipikasyon ng pinagmulan)",
-        "severity_moderate": "Katamtaman / Moderate (klasipikasyon ng pinagmulan)",
-        "severity_minor": "Bahagya / Minor (klasipikasyon ng pinagmulan)",
-        "severity_unspecified": "Hindi tinukoy sa database",
+        "severity_major": "Malubha — mag-ingat",
+        "severity_moderate": "Katamtaman — itanong sa doktor",
+        "severity_minor": "Bahagya",
+        "severity_unspecified": "Walang rating ang pinagmulan",
         "no_record_explanation": (
             "Walang nahanap na tala ng interaksyon sa naka-load na dataset para sa pares na ito. "
             "Dahil hindi kumpleto ang dataset, HINDI nito pinatutunayan na ligtas silang pagsabayin. "
@@ -769,6 +934,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_schedule": "Lịch uống hàng ngày",
         "nav_reports": "Báo cáo cho Dược sĩ / Người nhà",
         "nav_settings": "Cài đặt & Quyền riêng tư",
+        "nav_more": "Thêm",
+        "nav_help": "Trợ giúp & cách dùng",
+        "open_label": "Mở",
+        "open_full_guide": "Mở hướng dẫn đầy đủ",
+        "back_to_home": "Về trang chính",
+        "glance_title": 'Nhìn nhanh',
+        "glance_all_clear": 'Không có gì đáng lo. Không tìm thấy vấn đề nào được ghi nhận giữa các thuốc của quý vị.',
+        "glance_clear_rest": 'Những cặp còn lại đều ổn',
+        "glance_same_med": 'Cùng một loại thuốc hai lần — nguy cơ liều gấp đôi',
+        "glance_unchecked": 'Chưa kiểm tra — cần xác nhận danh tính thuốc',
+        "glance_food": 'Thức ăn, đồ uống cần lưu ý',
+        "glance_details_below": 'Giải thích dễ hiểu cho từng mục ở bên dưới.',
+        "severity_legend": '🔴 Nghiêm trọng: có thể gây hại thật — cần xử lý · 🟠 Trung bình: hãy nói với bác sĩ hoặc dược sĩ · 🟡 Nhẹ: thường không sao — nên biết',
+        "more_subtitle": "Báo cáo, cài đặt và hướng dẫn đầy đủ đều ở đây, chỉ một chạm.",
+        "more_reports_hint": "In hoặc tải xuống bản tóm tắt thuốc cho dược sĩ hoặc gia đình của quý vị.",
+        "more_settings_hint": "Cỡ chữ, ngôn ngữ, giao diện, bộ dữ liệu và các kiểm soát quyền riêng tư.",
+        "more_help_hint": "Hướng dẫn từng bước sử dụng MedSafe và cách hoạt động của các kiểm tra an toàn.",
+        "help_safety_heading": "Cách MedSafe giữ cho câu trả lời trung thực",
+        "help_safety_body": (
+            "- Cơ sở dữ liệu đã xác minh — không bao giờ là AI — quyết định hai loại thuốc có tương tác được ghi nhận hay không.\n"
+            "- \"Không tìm thấy bản ghi\" không bao giờ có nghĩa là \"an toàn\"; nó chỉ có nghĩa là bộ dữ liệu đã tải không có mục cho cặp thuốc đó.\n"
+            "- Danh tính của mỗi loại thuốc phải được một người xác nhận trước khi kiểm tra.\n"
+            "- AI tùy chọn chỉ diễn đạt lại bản ghi đã xác nhận bằng ngôn ngữ dễ hiểu; câu trả lời của nó sẽ bị từ chối nếu thêm thông tin, thay đổi mức độ nghiêm trọng hoặc đưa ra lời khuyên về liều.\n"
+            "- Luôn trao đổi với dược sĩ hoặc bác sĩ trước khi thay đổi bất kỳ loại thuốc nào."
+        ),
+        "setup_title": "Chào mừng đến với MedSafe",
+        "setup_subtitle": "Hai câu hỏi nhanh để ứng dụng dễ đọc hơn. Quý vị có thể thay đổi bất cứ lúc nào trong Cài đặt & Quyền riêng tư.",
+        "setup_lang_label": "Quý vị muốn dùng ngôn ngữ nào?",
+        "setup_font_label": "Chữ nên lớn cỡ nào?",
+        "setup_preview": "Văn bản sẽ hiển thị như thế này: Uống 1 viên mỗi sáng cùng thức ăn.",
+        "setup_start": "Bắt đầu dùng MedSafe",
+        "font_standard": "Tiêu chuẩn (19 px)",
+        "font_large": "Lớn (21 px)",
+        "font_xlarge": "Rất lớn (24 px)",
         "onboarding_title": "Cách MedSafe hoạt động (5 bước đơn giản)",
         "onboarding_step_1": "1. Thêm thuốc bằng cách nhập tên hoặc chụp/quét nhãn lọ thuốc.",
         "onboarding_step_2": "2. Kiểm tra và xác nhận hoạt chất, hàm lượng và dạng bào chế của từng thuốc.",
@@ -809,7 +1008,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "duplicate_warning_title": "Có thể trùng lặp thuốc hoặc trùng hoạt chất",
         "duplicate_warning_body": "Vui lòng hỏi dược sĩ xem các thuốc này có được dùng cùng nhau hay không:",
         "scan_heading": "Quét Nhãn Lọ Thuốc",
-        "scan_subtitle": "Tải ảnh chụp rõ nét của nhãn lọ thuốc hoặc dùng thử nhãn mẫu tích hợp sẵn.",
+        "scan_subtitle": "Chụp hoặc tải lên ảnh nhãn thuốc. Quý vị tự kiểm tra mọi kết quả quét trước khi lưu.",
         "ocr_review_heading": "Kiểm tra thông tin quét trước khi lưu",
         "ocr_uncertainty_banner": (
             "Bắt buộc xác nhận thủ công: Hãy đối chiếu tên thuốc, hoạt chất, hàm lượng và cách dùng "
@@ -828,10 +1027,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_IDENTITY_REQUIRES_CONFIRMATION": "Chưa thể kiểm tra — cần xác nhận hoạt chất thuốc",
         "status_UNABLE_TO_CHECK": "Không thể kiểm tra — chưa nhận diện được thuốc",
         "status_DATASET_UNAVAILABLE": "Không thể kiểm tra — cơ sở dữ liệu không khả dụng",
-        "severity_major": "Nghiêm trọng / Major (theo nguồn dữ liệu)",
-        "severity_moderate": "Trung bình / Moderate (theo nguồn dữ liệu)",
-        "severity_minor": "Nhẹ / Minor (theo nguồn dữ liệu)",
-        "severity_unspecified": "Chưa phân loại mức độ trong dữ liệu nguồn",
+        "severity_major": "Nghiêm trọng — hãy cẩn thận",
+        "severity_moderate": "Trung bình — nên hỏi bác sĩ",
+        "severity_minor": "Nhẹ",
+        "severity_unspecified": "Nguồn chưa xếp mức độ",
         "no_record_explanation": (
             "Không tìm thấy bản ghi tương tác nào cho cặp thuốc này trong bộ dữ liệu hiện tại. "
             "Vì bộ dữ liệu chưa đầy đủ, kết quả này KHÔNG khẳng định hai thuốc dùng chung là an toàn. "
@@ -891,6 +1090,40 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "nav_schedule": "Horaire Quotidien",
         "nav_reports": "Aidants et Rapports",
         "nav_settings": "Paramètres et Confidentialité",
+        "nav_more": "Plus",
+        "nav_help": "Aide et fonctionnement",
+        "open_label": "Ouvrir",
+        "open_full_guide": "Ouvrir le guide complet",
+        "back_to_home": "Retour à l'accueil",
+        "glance_title": "En un coup d'œil",
+        "glance_all_clear": "Rien à signaler. Aucun problème documenté n'a été trouvé entre vos médicaments.",
+        "glance_clear_rest": 'Tout le reste est en ordre',
+        "glance_same_med": 'Même médicament deux fois — risque de double dose',
+        "glance_unchecked": 'Pas encore vérifié — identité du médicament à confirmer',
+        "glance_food": 'Aliments et boissons à surveiller',
+        "glance_details_below": 'Les explications simples de chaque point sont ci-dessous.',
+        "severity_legend": '🔴 Grave : peut causer un réel préjudice — agissez · 🟠 Modérée : parlez-en à votre médecin ou pharmacien · 🟡 Légère : généralement sans danger — bon à savoir',
+        "more_subtitle": "Les rapports, les paramètres et le guide complet sont ici, à une pression.",
+        "more_reports_hint": "Imprimez ou téléchargez un résumé des médicaments pour votre pharmacien ou votre famille.",
+        "more_settings_hint": "Taille du texte, langue, apparence, jeux de données et contrôles de confidentialité.",
+        "more_help_hint": "Guide pas à pas pour utiliser MedSafe et fonctionnement de ses vérifications de sécurité.",
+        "help_safety_heading": "Comment MedSafe garde ses réponses honnêtes",
+        "help_safety_body": (
+            "- Une base de données vérifiée — jamais l'IA — décide si deux médicaments ont une interaction documentée.\n"
+            "- « Aucun enregistrement correspondant » ne signifie jamais « sans danger » ; cela signifie seulement que le jeu de données chargé n'a pas d'entrée pour cette paire.\n"
+            "- L'identité de chaque médicament doit être confirmée par une personne avant toute vérification.\n"
+            "- L'IA facultative ne fait que reformuler en langage simple un enregistrement confirmé de la base de données ; sa réponse est rejetée si elle ajoute des faits, modifie la gravité ou donne des conseils de dosage.\n"
+            "- Parlez toujours à votre pharmacien ou médecin avant de modifier un médicament."
+        ),
+        "setup_title": "Bienvenue dans MedSafe",
+        "setup_subtitle": "Deux questions rapides pour rendre l'application confortable à lire. Vous pourrez les modifier à tout moment dans Paramètres et Confidentialité.",
+        "setup_lang_label": "Quelle langue préférez-vous ?",
+        "setup_font_label": "Quelle taille de texte préférez-vous ?",
+        "setup_preview": "Voici l'apparence du texte : Prendre 1 comprimé chaque matin avec de la nourriture.",
+        "setup_start": "Commencer avec MedSafe",
+        "font_standard": "Standard (19 px)",
+        "font_large": "Grand (21 px)",
+        "font_xlarge": "Très grand (24 px)",
         "onboarding_title": "Comment fonctionne MedSafe (5 étapes simples)",
         "onboarding_step_1": "1. Ajoutez des médicaments en tapant leur nom ou en scannant l'étiquette du flacon.",
         "onboarding_step_2": "2. Vérifiez et confirmez le principe actif, le dosage et la forme de chaque médicament.",
@@ -931,7 +1164,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "duplicate_warning_title": "Médicaments en double ou principes actifs partagés possibles",
         "duplicate_warning_body": "Veuillez demander à votre pharmacien si ces médicaments doivent être pris ensemble :",
         "scan_heading": "Scanner un Flacon de Médicament",
-        "scan_subtitle": "Importez une photo nette de l'étiquette ou testez une étiquette de démonstration intégrée.",
+        "scan_subtitle": "Prenez ou importez une photo de l'étiquette. Vous vérifiez chaque numérisation avant tout enregistrement.",
         "ocr_review_heading": "Vérifiez l'étiquette scannée avant d'enregistrer",
         "ocr_uncertainty_banner": (
             "Confirmation humaine requise : Vérifiez le nom, le principe actif, le dosage et les "
@@ -950,10 +1183,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "status_IDENTITY_REQUIRES_CONFIRMATION": "Vérification en attente — identité du médicament à confirmer",
         "status_UNABLE_TO_CHECK": "Impossible de vérifier — médicament non identifié",
         "status_DATASET_UNAVAILABLE": "Impossible de vérifier — base de données indisponible",
-        "severity_major": "Majeure / Grave (classification source)",
-        "severity_moderate": "Modérée (classification source)",
-        "severity_minor": "Mineure / Légère (classification source)",
-        "severity_unspecified": "Non spécifiée par la source",
+        "severity_major": "Grave — soyez prudent",
+        "severity_moderate": "Modérée — à signaler",
+        "severity_minor": "Légère",
+        "severity_unspecified": "Gravité non classée par la source",
         "no_record_explanation": (
             "Aucune interaction correspondante n'a été trouvée dans le jeu de données chargé. "
             "Comme la base est incomplète, ce résultat NE confirme PAS que ces médicaments sont "

@@ -866,15 +866,77 @@ def _merge_multipass_lines(pass_texts: list[str]) -> str:
     return "\n".join(merged_lines)
 
 
+_VISION_SDK_MISSING = False
+_VISION_LAST_ERROR: str | None = None
+_BARCODE_LIB_MISSING = False
+
+
+def read_barcodes(image: Image.Image) -> list[str]:
+    """Decode any barcodes/QR codes in the image (zxing-cpp, fully local).
+    Returns decoded text strings, or [] when none found or lib missing."""
+    global _BARCODE_LIB_MISSING
+    try:
+        import zxingcpp
+    except ImportError:
+        _BARCODE_LIB_MISSING = True
+        return []
+    try:
+        results = zxingcpp.read_barcodes(image.convert("RGB"))
+        return [r.text.strip() for r in results if r.text and r.text.strip()]
+    except Exception:
+        return []
+
+
+def lookup_barcode_candidates(codes: list[str], *, use_network: bool = True) -> tuple[list, list[str]]:
+    """Resolve decoded barcode values to drug candidates via openFDA's NDC
+    directory (UPC for OTC boxes, NDC for prescription labels). Returns
+    (candidates, notes). Conservative: results still require human confirmation."""
+    import drug_data
+
+    notes: list[str] = []
+    candidates: list = []
+    if not codes:
+        return candidates, notes
+    if not use_network:
+        notes.append("A barcode was found, but barcode lookup needs an internet connection.")
+        return candidates, notes
+    for code in codes[:3]:
+        digits = "".join(ch for ch in code if ch.isdigit())
+        if len(digits) < 8:
+            continue  # not a product barcode (e.g. QR with text/URL)
+        name = drug_data.lookup_ndc_or_upc(digits)
+        if name:
+            found = drug_data.resolve_drug_candidates(name)
+            if found and found.candidates:
+                notes.append(
+                    f"📦 Package barcode recognized ({code}) — identified as **{name.title()}**. "
+                    "Please still confirm it matches your bottle."
+                )
+                candidates.extend(found.candidates)
+                break
+    if codes and not candidates and not notes:
+        notes.append(
+            f"A barcode was detected ({codes[0][:24]}…) but it is not in the FDA product directory "
+            "(store-brand barcodes often are not). Falling back to label reading."
+        )
+    return candidates, notes
+
+
 def transcribe_label_with_gemini_vision(image: Image.Image) -> str | None:
     """Optional, strictly-gated Gemini Vision transcription fallback.
     Only invoked when `GEMINI_API_KEY` is configured and local Tesseract is
     unavailable or fails to find a medication candidate on a complex bottle.
     Returns raw transcribed label lines (never treated as confirmed identity)."""
+    global _VISION_LAST_ERROR
     if not _has_gemini_key():
         return None
     try:
-        from google import genai
+        try:
+            from google import genai
+        except ImportError:
+            global _VISION_SDK_MISSING
+            _VISION_SDK_MISSING = True
+            return None
 
         api_key = os.environ.get("GEMINI_API_KEY", "").strip()
         if not api_key:
@@ -886,16 +948,30 @@ def transcribe_label_with_gemini_vision(image: Image.Image) -> str | None:
             "Do NOT include patient names, Rx numbers, phone numbers, or street addresses. "
             "Do NOT guess or invent any text that is not clearly visible."
         )
-        response = client.models.generate_content(
-            model=_get_gemini_model(),
-            contents=[prompt, image],
-        )
-        text = getattr(response, "text", None)
-        if text and text.strip():
-            return text.strip()
-    except Exception:
+        errors: list[str] = []
+        for model_name in config.gemini_model_chain():
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt, image],
+                )
+                text = getattr(response, "text", None)
+                if text and text.strip():
+                    _VISION_LAST_ERROR = None
+                    return text.strip()
+                errors.append(f"{model_name}: empty response")
+            except Exception as inner:
+                msg = str(inner)
+                errors.append(f"{model_name}: {msg[:90]}")
+                # quota/availability errors: walk down the chain
+                if not any(k in msg for k in ("429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "403", "503", "UNAVAILABLE", "500", "INTERNAL")):
+                    break
+        if errors:
+            _VISION_LAST_ERROR = " | ".join(errors)[:400]
         return None
-    return None
+    except Exception as exc:
+        _VISION_LAST_ERROR = f"{type(exc).__name__}: {str(exc)[:220]}"
+        return None
 
 
 def scan_label_image(
@@ -914,6 +990,12 @@ def scan_label_image(
 
     pil_img = ImageOps.exif_transpose(pil_img)
     quality = analyze_image_quality(pil_img)
+
+    # Barcode/QR first: a decoded NDC or UPC identifies the product far more
+    # reliably than reading printed text. Fully local decode; network lookup.
+    barcode_candidates, barcode_notes = lookup_barcode_candidates(
+        read_barcodes(pil_img), use_network=use_network
+    )
 
     pass_a_img = preprocess_label_image(pil_img, apply_threshold=False)
     pass_c_img = preprocess_color_highlight_pass(pil_img)
@@ -1028,6 +1110,43 @@ def scan_label_image(
         image_quality=quality,
     )
 
+    # Rescue pass for hard photos (small text, backlit, tilted tube/bottle):
+    # strong upscale + contrast with a threshold sweep, plus small-angle
+    # rotations. Only runs when the normal passes found no drug candidate.
+    if not parsed.candidates:
+        try:
+            rescue_outputs: list[str] = list(pass_outputs)
+            big = pil_img.convert("L")
+            w, h = big.size
+            scale = max(1.0, 2200.0 / max(w, h))
+            if scale > 1.0:
+                big = big.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            big = ImageOps.autocontrast(big, cutoff=3)
+            big = big.filter(ImageFilter.UnsharpMask(radius=2.2, percent=200, threshold=2))
+            variants: list[Image.Image] = [big]
+            for thr in (140, 175, 205):
+                variants.append(big.point(lambda px, t=thr: 255 if px >= t else 0, mode="L"))
+            for angle in (12, -12):
+                variants.append(big.rotate(angle, expand=True, fillcolor=255))
+            for var in variants:
+                for psm_cfg in ("--oem 3 --psm 6", "--oem 3 --psm 11"):
+                    txt = pytesseract.image_to_string(var, config=psm_cfg)
+                    if txt and txt.strip():
+                        rescue_outputs.append(txt)
+            rescued = _merge_multipass_lines(rescue_outputs)
+            if rescued.strip() and rescued != merged_text:
+                reparsed = parse_label_text(
+                    rescued,
+                    use_network=use_network,
+                    engine_used="tesseract_multipass+rescue",
+                    image_quality=quality,
+                )
+                if reparsed.candidates or len(reparsed.redacted_text) > len(parsed.redacted_text):
+                    parsed = reparsed
+                    merged_text = rescued
+        except Exception:
+            pass  # rescue is best-effort; the normal result stands
+
     # Optional strictly-gated Gemini Vision fallback if local OCR found 0 candidates
     if not parsed.candidates and use_network and _has_gemini_key():
         vision_text = transcribe_label_with_gemini_vision(pil_img)
@@ -1039,6 +1158,31 @@ def scan_label_image(
                 engine_used="tesseract+gemini_vision_fallback",
                 image_quality=quality,
             )
+
+    if not parsed.candidates and not _has_gemini_key():
+        parsed.uncertainty_notes.append(
+            "Tip: adding a free Gemini API key (see README) enables an AI photo-reading "
+            "assistant that handles difficult photos much better."
+        )
+    if not parsed.candidates and _VISION_SDK_MISSING:
+        parsed.uncertainty_notes.append(
+            "The AI photo-reading assistant could not start: the `google-genai` package "
+            "is not installed. Run `pip install google-genai` and restart the app."
+        )
+    if not parsed.candidates and _VISION_LAST_ERROR:
+        parsed.uncertainty_notes.append(
+            f"The AI photo-reading assistant hit an error and was skipped "
+            f"(technical detail: {_VISION_LAST_ERROR})"
+        )
+
+    # Merge barcode identification (most reliable signal, so it goes first)
+    if barcode_candidates:
+        seen_generics = {c.generic_name for c in barcode_candidates}
+        parsed.candidates = barcode_candidates + [
+            c for c in parsed.candidates if c.generic_name not in seen_generics
+        ]
+    if barcode_notes:
+        parsed.uncertainty_notes = barcode_notes + parsed.uncertainty_notes
 
     return parsed, display_processed, status
 
